@@ -21,7 +21,7 @@ app.use('/api/tuition',    require('./routes/tuition'));
 app.use('/api/invoices',   require('./routes/invoices'));
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/checkin',    require('./routes/checkin'));
-
+app.use('/api/rooms', require('./routes/rooms'));
 app.get('/', (req, res) => res.json({ message: '🎵 Ascent Music API đang chạy!' }));
 
 app.use((req, res) => res.status(404).json({ message: 'Route không tồn tại' }));
