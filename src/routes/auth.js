@@ -5,7 +5,7 @@ const db     = require('../models/db');
 
 router.post('/login',    ctrl.login);
 router.post('/register', ctrl.register);
-router.get('/me',  auth, ctrl.getMe);
+router.get('/me',   auth, ctrl.getMe);
 router.put('/password', auth, ctrl.changePassword);
 
 // Cập nhật thông tin cá nhân
@@ -17,6 +17,19 @@ router.put('/profile', auth, async (req, res) => {
       [name, phone, email, req.user.id]
     );
     res.json({ success: true, message: 'Cập nhật thành công!' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Lấy danh sách tất cả users (cho chat)
+router.get('/users', auth, async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT id, name, role, phone FROM users WHERE id != ? AND status = 'active'",
+      [req.user.id]
+    );
+    res.json({ success: true, rows });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

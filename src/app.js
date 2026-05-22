@@ -12,7 +12,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files (uploads)
+// Serve static files
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
@@ -30,6 +30,8 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/lesson-logs',   require('./routes/lessonLogs'));
 app.use('/api/materials',     require('./routes/materials'));
 app.use('/api/upload',        require('./routes/upload'));
+app.use('/api/trials',        require('./routes/trials'));
+app.use('/api/messages',      require('./routes/messages'));
 
 app.get('/', (req, res) => res.json({ message: '🎵 Ascent Music API đang chạy!' }));
 app.use((req, res) => res.status(404).json({ message: 'Route không tồn tại' }));
