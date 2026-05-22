@@ -149,40 +149,40 @@ CREATE TABLE tuition (
 
 -- Hóa đơn đăng ký
 CREATE TABLE invoices (
-  id              VARCHAR(36)  PRIMARY KEY DEFAULT (UUID()),
-  invoice_no      VARCHAR(20)  UNIQUE,
-  student_id      VARCHAR(36)  REFERENCES students(id),
-  instrument      VARCHAR(50),
-  billing_type    ENUM('session','month') DEFAULT 'session',
-  sessions        INT DEFAULT 0,
+  id                VARCHAR(36)  PRIMARY KEY DEFAULT (UUID()),
+  invoice_no        VARCHAR(20)  UNIQUE,
+  student_id        VARCHAR(36)  REFERENCES students(id),
+  instrument        VARCHAR(50),
+  billing_type      ENUM('session','month') DEFAULT 'session',
+  sessions          INT DEFAULT 0,
   sessions_per_week INT DEFAULT 2,
   price_per_session DECIMAL(15,0) DEFAULT 0,
-  duration        INT DEFAULT 0,
-  total_fee       DECIMAL(15,0) DEFAULT 0,
-  discount        DECIMAL(15,0) DEFAULT 0,
-  start_date      DATE,
-  end_date        DATE,
-  schedule        VARCHAR(200),
-  teacher_id      VARCHAR(36)  REFERENCES teachers(id),
-  method          VARCHAR(50),
-  status          ENUM('unpaid','paid') DEFAULT 'unpaid',
-  paid_date       DATE,
-  paid_method     VARCHAR(50),
-  paid_note       TEXT,
-  note            TEXT,
-  created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  duration          INT DEFAULT 0,
+  total_fee         DECIMAL(15,0) DEFAULT 0,
+  discount          DECIMAL(15,0) DEFAULT 0,
+  start_date        DATE,
+  end_date          DATE,
+  schedule          VARCHAR(200),
+  teacher_id        VARCHAR(36)  REFERENCES teachers(id),
+  method            VARCHAR(50),
+  status            ENUM('unpaid','paid') DEFAULT 'unpaid',
+  paid_date         DATE,
+  paid_method       VARCHAR(50),
+  paid_note         TEXT,
+  note              TEXT,
+  created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Chấm công
 CREATE TABLE checkin (
-  id           VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
-  teacher_id   VARCHAR(36) REFERENCES teachers(id),
-  class_id     VARCHAR(36) REFERENCES classes(id),
-  date         DATE NOT NULL,
-  time         TIME,
+  id            VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  teacher_id    VARCHAR(36) REFERENCES teachers(id),
+  class_id      VARCHAR(36) REFERENCES classes(id),
+  date          DATE NOT NULL,
+  time          TIME,
   salary_earned DECIMAL(15,0) DEFAULT 0,
-  note         TEXT,
-  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  note          TEXT,
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Thông báo
@@ -224,9 +224,3 @@ CREATE TABLE pending_accounts (
   status     ENUM('pending','approved','rejected') DEFAULT 'pending',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
--- Insert tài khoản admin mặc định
-INSERT INTO users (id, name, email, password, role, phone) VALUES
-('admin-001', 'Nguyễn Văn Admin', 'admin@ascentmusic.vn',
- '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', '0901234567');
--- Mật khẩu mặc định: password (hash bcrypt)

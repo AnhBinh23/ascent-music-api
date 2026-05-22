@@ -31,12 +31,23 @@ const seed = async () => {
     // Giáo viên
     await db.query('DELETE FROM teachers');
     await db.query(`
-      INSERT INTO teachers (id, name, phone, email, instrument, experience, salary_type, salary_amount, status) VALUES
-      ('gv-001', 'Nguyễn Thị Mai',  '0923456789', 'mai@ascentmusic.vn',   'Piano',      '5 năm', 'Theo buổi', 200000, 'active'),
-      ('gv-002', 'Trần Văn Hùng',   '0934567890', 'hung@ascentmusic.vn',  'Guitar',     '3 năm', 'Theo buổi', 180000, 'active'),
-      ('gv-003', 'Lê Thị Hoa',      '0945678901', 'hoa@ascentmusic.vn',   'Violin',     '7 năm', 'Theo buổi', 220000, 'active'),
-      ('gv-004', 'Phạm Minh Tuấn',  '0956789012', 'tuan@ascentmusic.vn',  'Thanh nhạc', '4 năm', 'Theo buổi', 190000, 'active')
+    INSERT INTO teachers (id, user_id, name, phone, email, instrument, experience, salary_type, salary_amount, status) VALUES
+    ('gv-001', 'teacher-001', 'Nguyễn Thị Mai',  '0923456789', 'mai@ascentmusic.vn',   'Piano',      '5 năm', 'Theo buổi', 200000, 'active'),
+    ('gv-002', NULL,          'Trần Văn Hùng',   '0934567890', 'hung@ascentmusic.vn',  'Guitar',     '3 năm', 'Theo buổi', 180000, 'active'),
+    ('gv-003', NULL,          'Lê Thị Hoa',      '0945678901', 'hoa@ascentmusic.vn',   'Violin',     '7 năm', 'Theo buổi', 220000, 'active'),
+    ('gv-004', NULL,          'Phạm Minh Tuấn',  '0956789012', 'tuan@ascentmusic.vn',  'Thanh nhạc', '4 năm', 'Theo buổi', 190000, 'active')
     `);
+
+// Học viên — cập nhật phone khớp với user
+await db.query('DELETE FROM students');
+await db.query(`
+  INSERT INTO students (id, user_id, name, dob, gender, phone, email, instrument, level, parent_name, status) VALUES
+  ('hv-001', 'student-001', 'Nguyễn Văn An',  '2010-05-12', 'Nam', '0934567890', 'hv@ascentmusic.vn', 'Piano',      'Sơ cấp',   'Nguyễn Thị B', 'active'),
+  ('hv-002', NULL,          'Trần Thị Bình',  '2008-09-20', 'Nữ',  '0912345678', 'binh@gmail.com',    'Guitar',     'Trung cấp','Trần Văn C',   'active'),
+  ('hv-003', NULL,          'Lê Minh Châu',   '2012-03-08', 'Nam', '0923456789', 'chau@gmail.com',    'Violin',     'Sơ cấp',   'Lê Thị D',    'active'),
+  ('hv-004', NULL,          'Hoàng Văn Em',   '2011-07-22', 'Nam', '0945678901', 'em@gmail.com',      'Piano',      'Trung cấp','Hoàng Thị F', 'active'),
+  ('hv-005', NULL,          'Phạm Thị Dung',  '2005-11-15', 'Nữ',  '0956789012', 'dung@gmail.com',    'Thanh nhạc', 'Nâng cao', 'Phạm Văn G',  'active')
+`);
     console.log('✅ Seed giáo viên thành công!');
 
     // Học viên

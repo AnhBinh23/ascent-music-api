@@ -3,7 +3,11 @@ const db = require('../models/db');
 exports.getByClass = async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT l.*, t.name AS teacher_name, c.name AS class_name
+      SELECT l.*, t.name AS teacher_name, c.name AS class_name,
+        (SELECT GROUP_CONCAT(s.name SEPARATOR ', ')
+         FROM class_students cs
+         INNER JOIN students s ON s.id = cs.student_id
+         WHERE cs.class_id = l.class_id) AS student_names
       FROM lesson_logs l
       LEFT JOIN teachers t ON l.teacher_id = t.id
       LEFT JOIN classes  c ON l.class_id   = c.id
@@ -17,7 +21,11 @@ exports.getByClass = async (req, res) => {
 exports.getByTeacher = async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT l.*, c.name AS class_name
+      SELECT l.*, c.name AS class_name,
+        (SELECT GROUP_CONCAT(s.name SEPARATOR ', ')
+         FROM class_students cs
+         INNER JOIN students s ON s.id = cs.student_id
+         WHERE cs.class_id = l.class_id) AS student_names
       FROM lesson_logs l
       LEFT JOIN classes c ON l.class_id = c.id
       WHERE l.teacher_id = ?
@@ -30,11 +38,11 @@ exports.getByTeacher = async (req, res) => {
 exports.getByStudent = async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT l.*, c.name AS class_name, t.name AS teacher_name
+      SELECT DISTINCT l.*, c.name AS class_name, t.name AS teacher_name
       FROM lesson_logs l
-      LEFT JOIN classes        c  ON l.class_id   = c.id
-      LEFT JOIN teachers       t  ON l.teacher_id = t.id
-      LEFT JOIN class_students cs ON cs.class_id  = l.class_id
+      INNER JOIN class_students cs ON cs.class_id = l.class_id
+      LEFT JOIN classes  c ON l.class_id   = c.id
+      LEFT JOIN teachers t ON l.teacher_id = t.id
       WHERE cs.student_id = ?
       ORDER BY l.date DESC
     `, [req.params.studentId]);

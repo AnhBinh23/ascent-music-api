@@ -52,3 +52,14 @@ exports.delete = async (req, res) => {
     res.json({ success: true, message: 'Đã xóa lịch học!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
+
+exports.update = async (req, res) => {
+  try {
+    const { class_id, teacher_id, room_id, day_of_week, time_start, time_end, type, note } = req.body;
+    await db.query(
+      `UPDATE schedules SET class_id=?, teacher_id=?, room_id=?, day_of_week=?, time_start=?, time_end=?, type=?, note=? WHERE id=?`,
+      [class_id, teacher_id, room_id, day_of_week, time_start, time_end, type, note, req.params.id]
+    );
+    res.json({ success: true, message: 'Cập nhật lịch học thành công!' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
