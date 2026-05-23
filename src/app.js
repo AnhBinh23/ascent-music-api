@@ -50,6 +50,7 @@ app.use('/api/materials',     require('./routes/materials'));
 app.use('/api/upload',        require('./routes/upload'));
 app.use('/api/trials',        require('./routes/trials'));
 app.use('/api/messages',      require('./routes/messages'));
+app.use('/api/ai',            require('./routes/ai'));
 
 app.get('/', (req, res) => res.json({ message: '🎵 Ascent Music API đang chạy!' }));
 app.use((req, res) => res.status(404).json({ message: 'Route không tồn tại' }));
