@@ -41,7 +41,7 @@ HỌC PHÍ: ${JSON.stringify(tuition.slice(0, 20))}
 LỚP HỌC: ${JSON.stringify(classes)}
 LỊCH HỌC SẮP TỚI: ${JSON.stringify(schedules.slice(0, 20))}`;
 
-    const answer = await callGemini(
+    const answer = await callAI(
       `Bạn là trợ lý AI của trung tâm âm nhạc Ascent Music Center Việt Nam.
 Dưới đây là dữ liệu thực tế. Hãy trả lời câu hỏi dựa trên dữ liệu này.
 Trả lời bằng tiếng Việt, ngắn gọn, rõ ràng.
@@ -74,7 +74,7 @@ router.post('/parent-chat', auth, async (req, res) => {
       ORDER BY s.date LIMIT 10
     `);
 
-    const answer = await callGemini(
+    const answer = await callAI(
       `Bạn là trợ lý AI của trung tâm âm nhạc Ascent Music Center, hỗ trợ học viên 24/7.
 Thông tin học viên: ${JSON.stringify(userInfo[0])}
 Lịch học sắp tới: ${JSON.stringify(schedules)}
@@ -96,7 +96,7 @@ router.post('/feedback', auth, role('admin', 'teacher'), async (req, res) => {
   try {
     const { studentName, subject, score, notes, period } = req.body;
 
-    const feedback = await callGemini(
+    const feedback = await callAI(
       `Bạn là giáo viên âm nhạc chuyên nghiệp tại Ascent Music Center.
 Viết nhận xét đánh giá học viên để gửi phụ huynh: tích cực, động viên, 3-4 câu.
 Đề cập điểm mạnh và góc cần cải thiện. Kết bằng lời động viên.
@@ -119,7 +119,7 @@ router.post('/report', auth, role('admin'), async (req, res) => {
     const [classes]    = await db.query("SELECT c.name, COUNT(sc.id) as students FROM classes c LEFT JOIN schedules sc ON c.id = sc.class_id GROUP BY c.id");
     const [attendance] = await db.query("SELECT AVG(CASE WHEN status='present' THEN 1 ELSE 0 END)*100 as rate FROM attendance WHERE date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
 
-    const analysis = await callGemini(
+    const analysis = await callAI(
       `Bạn là chuyên gia phân tích kinh doanh cho trung tâm âm nhạc.
 Phân tích dữ liệu và đưa ra gợi ý cải thiện cụ thể.
 Trả lời bằng tiếng Việt với các mục: Tình hình hiện tại, Điểm mạnh, Điểm cần cải thiện, Gợi ý hành động.`,
@@ -144,7 +144,7 @@ router.post('/compose', auth, async (req, res) => {
     const toneMap      = { lich_su: 'lịch sự trang trọng', than_thien: 'thân thiện gần gũi', ngan_gon: 'ngắn gọn súc tích' };
     const recipientMap = { phu_huynh: 'phụ huynh', hoc_vien: 'học viên', giao_vien: 'giáo viên', tat_ca: 'tất cả' };
 
-    const text = await callGemini(
+    const text = await callAI(
       `Bạn là trợ lý soạn thông báo cho trung tâm âm nhạc Ascent Music Center.
 Soạn thông báo ${toneMap[tone] || 'lịch sự'} gửi đến ${recipientMap[recipient] || 'phụ huynh'}.
 Có: lời chào, nội dung chính, liên hệ 0901 234 567, lời kết và tên trung tâm.
