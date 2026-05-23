@@ -10,9 +10,7 @@ const callGemini = async (systemPrompt, userMessage) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{
-          parts: [{ text: `${systemPrompt}\n\nYêu cầu: ${userMessage}` }]
-        }],
+        contents: [{ parts: [{ text: `${systemPrompt}\n\nYêu cầu: ${userMessage}` }] }],
         generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
       })
     }
@@ -47,6 +45,7 @@ ${context}`,
 
     res.json({ success: true, answer });
   } catch (err) {
+    console.error('assistant error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -57,23 +56,22 @@ router.post('/parent-chat', auth, async (req, res) => {
     const { question } = req.body;
     const userId = req.user.id;
 
+    const [userInfo]   = await db.query('SELECT name, email, phone FROM users WHERE id = ?', [userId]);
+    const [tuition]    = await db.query('SELECT * FROM tuition WHERE student_id = ? ORDER BY created_at DESC LIMIT 5', [userId]);
+    const [attendance] = await db.query('SELECT * FROM attendance WHERE student_id = ? ORDER BY date DESC LIMIT 10', [userId]);
     const [schedules]  = await db.query(`
       SELECT s.*, c.name as class_name, u.name as teacher_name
       FROM schedules s
       JOIN classes c ON s.class_id = c.id
       LEFT JOIN users u ON c.teacher_id = u.id
-      WHERE c.id IN (SELECT class_id FROM enrollments WHERE student_id = ?)
-      AND s.date >= CURDATE()
+      WHERE s.date >= CURDATE()
       ORDER BY s.date LIMIT 10
-    `, [userId]);
-    const [tuition]    = await db.query('SELECT * FROM tuition WHERE student_id = ? ORDER BY created_at DESC LIMIT 5', [userId]);
-    const [attendance] = await db.query('SELECT * FROM attendance WHERE student_id = ? ORDER BY date DESC LIMIT 10', [userId]);
-    const [userInfo]   = await db.query('SELECT name, email, phone FROM users WHERE id = ?', [userId]);
+    `);
 
     const answer = await callGemini(
-      `Bạn là trợ lý AI của trung tâm âm nhạc Ascent Music Center, hỗ trợ phụ huynh và học viên 24/7.
+      `Bạn là trợ lý AI của trung tâm âm nhạc Ascent Music Center, hỗ trợ học viên 24/7.
 Thông tin học viên: ${JSON.stringify(userInfo[0])}
-Lịch học: ${JSON.stringify(schedules)}
+Lịch học sắp tới: ${JSON.stringify(schedules)}
 Học phí: ${JSON.stringify(tuition)}
 Điểm danh: ${JSON.stringify(attendance)}
 Trả lời thân thiện bằng tiếng Việt.`,
@@ -82,6 +80,7 @@ Trả lời thân thiện bằng tiếng Việt.`,
 
     res.json({ success: true, answer });
   } catch (err) {
+    console.error('parent-chat error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -101,6 +100,7 @@ Trả lời bằng tiếng Việt.`,
 
     res.json({ success: true, feedback });
   } catch (err) {
+    console.error('feedback error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -110,7 +110,7 @@ router.post('/report', auth, role('admin'), async (req, res) => {
   try {
     const [students]   = await db.query("SELECT COUNT(*) as total, status FROM users WHERE role = 'student' GROUP BY status");
     const [tuition]    = await db.query("SELECT SUM(amount) as total, SUM(paid) as paid, MONTH(created_at) as month FROM tuition GROUP BY MONTH(created_at) ORDER BY month DESC LIMIT 6");
-    const [classes]    = await db.query("SELECT c.name, COUNT(e.id) as students FROM classes c LEFT JOIN enrollments e ON c.id = e.class_id GROUP BY c.id");
+    const [classes]    = await db.query("SELECT c.name, COUNT(sc.id) as students FROM classes c LEFT JOIN schedules sc ON c.id = sc.class_id GROUP BY c.id");
     const [attendance] = await db.query("SELECT AVG(CASE WHEN status='present' THEN 1 ELSE 0 END)*100 as rate FROM attendance WHERE date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
 
     const analysis = await callGemini(
@@ -126,6 +126,7 @@ Trả lời bằng tiếng Việt với các mục: Tình hình hiện tại, Đ
 
     res.json({ success: true, analysis });
   } catch (err) {
+    console.error('report error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -147,6 +148,7 @@ Chỉ trả về nội dung thông báo, không giải thích thêm.`,
 
     res.json({ success: true, text });
   } catch (err) {
+    console.error('compose error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
