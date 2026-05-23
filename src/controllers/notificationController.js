@@ -23,39 +23,50 @@ const sendZaloMessage = async (userId, message) => {
   }
 };
 
-// Lấy thông báo cho user hiện tại (dashboard)
+// Lấy thông báo cho user hiện tại (theo role)
 exports.getForUser = async (req, res) => {
   try {
     const { role } = req.user;
 
-    const recipientFilter = role === 'student'
-      ? 'students'
-      : role === 'teacher'
-        ? 'teachers'
-        : null;
-
-    let rows;
-    if (recipientFilter) {
-      [rows] = await db.query(`
+    // Admin xem tất cả
+    if (role === 'admin') {
+      const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
         FROM notifications n
         LEFT JOIN users u ON n.sent_by = u.id
-        WHERE n.recipient = 'all' OR n.recipient = ?
         ORDER BY n.created_at DESC
-        LIMIT 20
-      `, [recipientFilter]);
-    } else {
-      // admin xem tất cả
-      [rows] = await db.query(`
+        LIMIT 30
+      `);
+      return res.json({ success: true, rows });
+    }
+
+    // Giáo viên chỉ thấy 'all' hoặc 'teachers'
+    if (role === 'teacher') {
+      const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
         FROM notifications n
         LEFT JOIN users u ON n.sent_by = u.id
+        WHERE n.recipient = 'all' OR n.recipient = 'teachers'
         ORDER BY n.created_at DESC
         LIMIT 20
       `);
+      return res.json({ success: true, rows });
     }
 
-    res.json({ success: true, rows });
+    // Học viên chỉ thấy 'all' hoặc 'students'
+    if (role === 'student') {
+      const [rows] = await db.query(`
+        SELECT n.*, u.name AS sender_name
+        FROM notifications n
+        LEFT JOIN users u ON n.sent_by = u.id
+        WHERE n.recipient = 'all' OR n.recipient = 'students'
+        ORDER BY n.created_at DESC
+        LIMIT 20
+      `);
+      return res.json({ success: true, rows });
+    }
+
+    res.json({ success: true, rows: [] });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
