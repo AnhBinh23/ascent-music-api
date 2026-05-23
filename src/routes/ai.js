@@ -3,22 +3,26 @@ const auth   = require('../middleware/auth');
 const role   = require('../middleware/role');
 const db     = require('../models/db');
 
-const callGemini = async (systemPrompt, userMessage) => {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `${systemPrompt}\n\nYêu cầu: ${userMessage}` }] }],
-        generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
-      })
-    }
-  );
+const callAI = async (systemPrompt, userMessage) => {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userMessage  },
+      ],
+      max_tokens: 1000,
+      temperature: 0.7,
+    })
+  });
   const data = await response.json();
-  console.log('Gemini response:', JSON.stringify(data).slice(0, 500));
   if (data.error) throw new Error(data.error.message);
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'Không thể xử lý yêu cầu.';
+  return data.choices?.[0]?.message?.content || 'Không thể xử lý yêu cầu.';
 };
 
 // ① Trợ lý AI cho Admin/Giáo viên
