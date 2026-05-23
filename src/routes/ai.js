@@ -16,6 +16,8 @@ const callGemini = async (systemPrompt, userMessage) => {
     }
   );
   const data = await response.json();
+  console.log('Gemini response:', JSON.stringify(data).slice(0, 500));
+  if (data.error) throw new Error(data.error.message);
   return data.candidates?.[0]?.content?.parts?.[0]?.text || 'Không thể xử lý yêu cầu.';
 };
 
