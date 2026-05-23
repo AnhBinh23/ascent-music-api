@@ -23,6 +23,45 @@ const sendZaloMessage = async (userId, message) => {
   }
 };
 
+// Lấy thông báo cho user hiện tại (dashboard)
+exports.getForUser = async (req, res) => {
+  try {
+    const { role } = req.user;
+
+    const recipientFilter = role === 'student'
+      ? 'students'
+      : role === 'teacher'
+        ? 'teachers'
+        : null;
+
+    let rows;
+    if (recipientFilter) {
+      [rows] = await db.query(`
+        SELECT n.*, u.name AS sender_name
+        FROM notifications n
+        LEFT JOIN users u ON n.sent_by = u.id
+        WHERE n.recipient = 'all' OR n.recipient = ?
+        ORDER BY n.created_at DESC
+        LIMIT 20
+      `, [recipientFilter]);
+    } else {
+      // admin xem tất cả
+      [rows] = await db.query(`
+        SELECT n.*, u.name AS sender_name
+        FROM notifications n
+        LEFT JOIN users u ON n.sent_by = u.id
+        ORDER BY n.created_at DESC
+        LIMIT 20
+      `);
+    }
+
+    res.json({ success: true, rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Gửi thông báo
 exports.send = async (req, res) => {
   try {
     const { title, message, recipient, specific_ids } = req.body;
@@ -69,6 +108,7 @@ exports.send = async (req, res) => {
   }
 };
 
+// Lịch sử thông báo (admin)
 exports.getHistory = async (req, res) => {
   try {
     const [rows] = await db.query(`

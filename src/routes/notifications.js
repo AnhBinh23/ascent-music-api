@@ -4,25 +4,26 @@ const auth   = require('../middleware/auth');
 const role   = require('../middleware/role');
 const db     = require('../models/db');
 
+// Lấy thông báo cho user hiện tại
+router.get('/', auth, ctrl.getForUser);
+
 // Gửi thông báo
 router.post('/', auth, role('admin', 'teacher'), ctrl.send);
 
 // Lịch sử thông báo
 router.get('/history', auth, ctrl.getHistory);
 
-// Webhook Zalo — tự động lưu User ID khi học viên follow OA
+// Webhook Zalo
 router.post('/zalo/webhook', async (req, res) => {
   try {
     const { event_name, follower } = req.body;
     console.log('📱 Zalo webhook nhận:', event_name, follower);
 
     if (event_name === 'follow' && follower?.id) {
-      // Tìm user theo SĐT
       const [users] = await db.query(
         'SELECT * FROM users WHERE phone = ?',
         [follower.phone]
       );
-
       if (users.length) {
         await db.query(
           'UPDATE users SET zalo_id = ? WHERE phone = ?',
@@ -61,7 +62,7 @@ router.get('/zalo/followers', auth, role('admin'), async (req, res) => {
   }
 });
 
-// Cập nhật Zalo ID thủ công cho 1 user
+// Cập nhật Zalo ID thủ công
 router.put('/zalo/update/:userId', auth, role('admin'), async (req, res) => {
   try {
     const { zalo_id } = req.body;
