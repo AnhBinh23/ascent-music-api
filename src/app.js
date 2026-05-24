@@ -33,25 +33,7 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// ─── MIGRATION TẠM THỜI — xóa sau khi chạy ──────────────────────────────────
-app.get('/api/migrate', async (req, res) => {
-  const db = require('./models/db');
-  try {
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS push_subscriptions (
-        id           INT AUTO_INCREMENT PRIMARY KEY,
-        user_id      VARCHAR(36) NOT NULL UNIQUE,
-        subscription TEXT NOT NULL,
-        created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      )
-    `);
-    res.json({ success: true, message: 'Bảng push_subscriptions đã tạo!' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 // Routes
 app.use('/api/auth',          require('./routes/auth'));
