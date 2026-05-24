@@ -1,15 +1,9 @@
-const router  = require('express').Router();
-const auth    = require('../middleware/auth');
-const db      = require('../models/db');
-const webpush = require('web-push');
+const router             = require('express').Router();
+const auth               = require('../middleware/auth');
+const db                 = require('../models/db');
+const { sendPushToUser } = require('./push'); // ← dùng lại từ push.js
 
-webpush.setVapidDetails(
-  process.env.VAPID_EMAIL,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
-
-// Lấy số tin nhắn chưa đọc
+// ─── Lấy số tin nhắn chưa đọc ────────────────────────────────────────────────
 router.get('/unread-count', auth, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -20,7 +14,7 @@ router.get('/unread-count', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Lấy tin nhắn giữa 2 người + đánh dấu đã đọc
+// ─── Lấy tin nhắn giữa 2 người + đánh dấu đã đọc ────────────────────────────
 router.get('/:contactId', auth, async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -32,7 +26,6 @@ router.get('/:contactId', auth, async (req, res) => {
       ORDER BY m.created_at ASC
     `, [req.user.id, req.params.contactId, req.params.contactId, req.user.id]);
 
-    // Đánh dấu đã đọc
     await db.query(
       'UPDATE messages SET is_read = 1 WHERE to_id = ? AND from_id = ? AND is_read = 0',
       [req.user.id, req.params.contactId]
@@ -42,7 +35,7 @@ router.get('/:contactId', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Gửi tin nhắn
+// ─── Gửi tin nhắn ────────────────────────────────────────────────────────────
 router.post('/', auth, async (req, res) => {
   try {
     const { to_id, message } = req.body;
@@ -56,31 +49,17 @@ router.post('/', auth, async (req, res) => {
     const senderName = senders[0]?.name || 'Ai đó';
 
     // Gửi push notification
-    const [subs] = await db.query(
-      'SELECT * FROM push_subscriptions WHERE user_id = ?', [to_id]
-    );
-    for (const sub of subs) {
-      try {
-        await webpush.sendNotification(
-          JSON.parse(sub.subscription),
-          JSON.stringify({
-            title: `💬 ${senderName}`,
-            body:  message.length > 50 ? message.slice(0, 50) + '...' : message,
-            url:   '/chat',
-          })
-        );
-      } catch (e) {
-        if (e.statusCode === 410) {
-          await db.query('DELETE FROM push_subscriptions WHERE id = ?', [sub.id]);
-        }
-      }
-    }
+    await sendPushToUser(to_id, {
+      title: `💬 ${senderName}`,
+      body:  message.length > 50 ? message.slice(0, 50) + '...' : message,
+      url:   '/chat',
+    });
 
     res.json({ success: true, message: 'Đã gửi!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Lấy danh sách contacts
+// ─── Lấy danh sách contacts ───────────────────────────────────────────────────
 router.get('/', auth, async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -99,6 +78,7 @@ router.get('/', auth, async (req, res) => {
       GROUP BY contact_id, u.name, u.role
       ORDER BY last_time DESC
     `, [req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id]);
+
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
