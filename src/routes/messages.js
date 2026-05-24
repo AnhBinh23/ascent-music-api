@@ -1,6 +1,13 @@
-const router = require('express').Router();
-const auth   = require('../middleware/auth');
-const db     = require('../models/db');
+const router  = require('express').Router();
+const auth    = require('../middleware/auth');
+const db      = require('../models/db');
+const webpush = require('web-push');
+
+webpush.setVapidDetails(
+  process.env.VAPID_EMAIL,
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
 
 // Lấy tin nhắn giữa 2 người
 router.get('/:contactId', auth, async (req, res) => {
@@ -21,10 +28,39 @@ router.get('/:contactId', auth, async (req, res) => {
 router.post('/', auth, async (req, res) => {
   try {
     const { to_id, message } = req.body;
+
     await db.query(
       'INSERT INTO messages (from_id, to_id, message) VALUES (?,?,?)',
       [req.user.id, to_id, message]
     );
+
+    // Lấy tên người gửi
+    const [senders] = await db.query('SELECT name FROM users WHERE id = ?', [req.user.id]);
+    const senderName = senders[0]?.name || 'Ai đó';
+
+    // Gửi push notification cho người nhận
+    const [subs] = await db.query(
+      'SELECT * FROM push_subscriptions WHERE user_id = ?',
+      [to_id]
+    );
+
+    for (const sub of subs) {
+      try {
+        await webpush.sendNotification(
+          JSON.parse(sub.subscription),
+          JSON.stringify({
+            title: `💬 ${senderName}`,
+            body:  message.length > 50 ? message.slice(0, 50) + '...' : message,
+            url:   '/chat',
+          })
+        );
+      } catch (e) {
+        if (e.statusCode === 410) {
+          await db.query('DELETE FROM push_subscriptions WHERE id = ?', [sub.id]);
+        }
+      }
+    }
+
     res.json({ success: true, message: 'Đã gửi!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
