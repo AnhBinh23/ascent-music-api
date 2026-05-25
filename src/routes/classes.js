@@ -3,27 +3,48 @@ const auth   = require('../middleware/auth');
 const role   = require('../middleware/role');
 const db     = require('../models/db');
 
+// GET /api/classes?teacher_id=xxx
 router.get('/', auth, async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const { teacher_id } = req.query;
+    let query = `
       SELECT c.*, t.name AS teacher_name, r.name AS room_name
       FROM classes c
       LEFT JOIN teachers t ON c.teacher_id = t.id
       LEFT JOIN rooms    r ON c.room_id    = r.id
-      ORDER BY c.created_at DESC
-    `);
+    `;
+    const params = [];
+    if (teacher_id) {
+      query += ' WHERE c.teacher_id = ?';
+      params.push(teacher_id);
+    }
+    query += ' ORDER BY c.created_at DESC';
+
+    const [rows] = await db.query(query, params);
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
 // ⚠️ Phải đặt trước /:id
+// GET /api/classes/:id/students — kèm tỉ lệ điểm danh
 router.get('/:id/students', auth, async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT s.* FROM students s
+      SELECT
+        s.*,
+        ROUND(
+          COALESCE(
+            (SELECT COUNT(*) FROM attendance a
+             WHERE a.student_id = s.id AND a.class_id = ? AND a.status = 'present')
+            * 100.0 /
+            NULLIF((SELECT COUNT(*) FROM attendance a
+                    WHERE a.student_id = s.id AND a.class_id = ?), 0)
+          , 0)
+        , 0) AS attendance_rate
+      FROM students s
       INNER JOIN class_students cs ON cs.student_id = s.id
       WHERE cs.class_id = ?
-    `, [req.params.id]);
+    `, [req.params.id, req.params.id, req.params.id]);
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
