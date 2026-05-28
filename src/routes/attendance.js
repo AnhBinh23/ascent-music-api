@@ -8,25 +8,21 @@ router.get('/class/:classId',     auth, ctrl.getByClass);
 router.get('/student/:studentId', auth, ctrl.getByStudent);
 router.post('/save',              auth, ctrl.save);
 
-// Thống kê điểm danh học viên
 router.get('/stats/:studentId', auth, async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT COUNT(*) AS total,
         SUM(status='present') AS present, SUM(status='absent') AS absent,
-        SUM(status='late')    AS late,    SUM(status='excused') AS excused
+        SUM(status='late') AS late, SUM(status='excused') AS excused
       FROM attendance WHERE student_id = ?
     `, [req.params.studentId]);
     const r = rows[0];
-    res.json({
-      success: true,
+    res.json({ success: true,
       ...Object.fromEntries(Object.entries(r).map(([k,v]) => [k, Number(v)])),
-      rate: r.total > 0 ? Math.round(r.present / r.total * 100) : 0,
-    });
+      rate: r.total > 0 ? Math.round(r.present / r.total * 100) : 0 });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Lịch sử buổi học
 router.get('/student-history/:studentId', auth, async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -38,7 +34,7 @@ router.get('/student-history/:studentId', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Tiến độ khóa học — dùng students.total_sessions trực tiếp
+// Tổng quan TẤT CẢ học viên (kể cả chưa vào lớp)
 router.get('/course-progress', auth, role('admin','staff'), async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -47,19 +43,21 @@ router.get('/course-progress', auth, role('admin','staff'), async (req, res) => 
         s.name           AS student_name,
         s.phone          AS student_phone,
         s.total_sessions,
-        c.id             AS class_id,
-        c.name           AS class_name,
-        c.instrument,
+        s.instrument,
+        s.level,
+        COALESCE(c.id,   NULL) AS class_id,
+        COALESCE(c.name, NULL) AS class_name,
+        COALESCE(t.name, NULL) AS teacher_name,
         c.type           AS class_type,
-        t.name           AS teacher_name,
         COUNT(CASE WHEN a.status IN ('present','late') THEN 1 END) AS attended
-      FROM class_students cs
-      JOIN students s  ON cs.student_id = s.id
-      JOIN classes  c  ON cs.class_id   = c.id
-      LEFT JOIN teachers  t ON c.teacher_id = t.id
+      FROM students s
+      LEFT JOIN class_students cs ON cs.student_id = s.id
+      LEFT JOIN classes  c  ON c.id  = cs.class_id
+      LEFT JOIN teachers t  ON t.id  = c.teacher_id
       LEFT JOIN attendance a ON a.student_id = s.id AND a.class_id = c.id
-      GROUP BY s.id, s.name, s.phone, s.total_sessions,
-               c.id, c.name, c.instrument, c.type, t.name
+      WHERE s.status = 'active'
+      GROUP BY s.id, s.name, s.phone, s.total_sessions, s.instrument, s.level,
+               c.id, c.name, t.name, c.type
       ORDER BY
         (s.total_sessions - COUNT(CASE WHEN a.status IN ('present','late') THEN 1 END)) ASC,
         s.name ASC
@@ -68,7 +66,6 @@ router.get('/course-progress', auth, role('admin','staff'), async (req, res) => 
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Chi tiết buổi học từng học viên
 router.get('/student-sessions/:studentId/:classId', auth, async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -83,7 +80,6 @@ router.get('/student-sessions/:studentId/:classId', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Bảng tổng hợp điểm danh theo lớp
 router.get('/table/:classId', auth, role('admin','staff'), async (req, res) => {
   try {
     const [students] = await db.query(`
@@ -108,14 +104,8 @@ router.get('/table/:classId', auth, role('admin','staff'), async (req, res) => {
       byStudent[r.student_id].push(r);
     });
 
-    const result = students.map(s => ({
-      ...s,
-      sessions: byStudent[s.id] || [],
-    }));
-
-    const maxSessions = Math.max(
-      ...result.map(r => Math.max(r.sessions.length, r.total_sessions || 0)), 0
-    );
+    const result = students.map(s => ({ ...s, sessions: byStudent[s.id] || [] }));
+    const maxSessions = Math.max(...result.map(r => Math.max(r.sessions.length, r.total_sessions || 0)), 0);
 
     res.json({ success: true, rows: result, maxSessions });
   } catch (err) { res.status(500).json({ message: err.message }); }
