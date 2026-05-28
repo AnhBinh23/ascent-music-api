@@ -111,4 +111,55 @@ router.get('/table/:classId', auth, role('admin','staff'), async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+
+// Bảng tổng hợp TẤT CẢ học viên từ TẤT CẢ lớp
+router.get('/all-table', auth, role('admin','staff'), async (req, res) => {
+  try {
+    // Lấy tất cả học viên đã vào lớp
+    const [students] = await db.query(`
+      SELECT DISTINCT
+        s.id, s.name, s.total_sessions,
+        c.id   AS class_id,
+        c.name AS class_name,
+        c.type AS class_type,
+        c.instrument,
+        t.name AS teacher_name
+      FROM students s
+      INNER JOIN class_students cs ON cs.student_id = s.id
+      INNER JOIN classes  c ON c.id  = cs.class_id
+      LEFT JOIN  teachers t ON t.id  = c.teacher_id
+      WHERE s.status = 'active'
+      ORDER BY c.name ASC, s.name ASC
+    `);
+
+    if (!students.length) return res.json({ success: true, rows: [], maxSessions: 0 });
+
+    // Lấy tất cả điểm danh
+    const [records] = await db.query(`
+      SELECT student_id, class_id, date, status, note
+      FROM attendance
+      ORDER BY student_id, class_id, date ASC
+    `);
+
+    // Map theo student_id + class_id
+    const byKey = {};
+    records.forEach(r => {
+      const key = r.student_id + '_' + r.class_id;
+      if (!byKey[key]) byKey[key] = [];
+      byKey[key].push(r);
+    });
+
+    const result = students.map(s => ({
+      ...s,
+      sessions: byKey[s.id + '_' + s.class_id] || [],
+    }));
+
+    const maxSessions = Math.max(
+      ...result.map(r => Math.max(r.sessions.length, r.total_sessions || 0)), 0
+    );
+
+    res.json({ success: true, rows: result, maxSessions });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 module.exports = router;
