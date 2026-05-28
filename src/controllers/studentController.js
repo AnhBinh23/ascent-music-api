@@ -17,10 +17,14 @@ exports.getById = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { name, dob, gender, phone, email, address, instrument, level, parent_name, parent_phone, note } = req.body;
+    const { name, dob, gender, phone, email, address, instrument, level,
+            parent_name, parent_phone, note, total_sessions } = req.body;
     const [result] = await db.query(
-      'INSERT INTO students (name,dob,gender,phone,email,address,instrument,level,parent_name,parent_phone,note) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      [name,dob,gender,phone,email,address,instrument,level,parent_name,parent_phone,note]
+      `INSERT INTO students
+       (name,dob,gender,phone,email,address,instrument,level,parent_name,parent_phone,note,total_sessions)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [name,dob,gender,phone,email,address,instrument,level,
+       parent_name,parent_phone,note, total_sessions || 0]
     );
     res.json({ success: true, message: 'Thêm học viên thành công!', id: result.insertId });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -28,10 +32,15 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const { name, dob, gender, phone, email, address, instrument, level, parent_name, parent_phone, note, status } = req.body;
+    const { name, dob, gender, phone, email, address, instrument, level,
+            parent_name, parent_phone, note, status, total_sessions } = req.body;
     await db.query(
-      'UPDATE students SET name=?,dob=?,gender=?,phone=?,email=?,address=?,instrument=?,level=?,parent_name=?,parent_phone=?,note=?,status=? WHERE id=?',
-      [name,dob,gender,phone,email,address,instrument,level,parent_name,parent_phone,note,status,req.params.id]
+      `UPDATE students SET
+       name=?,dob=?,gender=?,phone=?,email=?,address=?,instrument=?,level=?,
+       parent_name=?,parent_phone=?,note=?,status=?,total_sessions=?
+       WHERE id=?`,
+      [name,dob,gender,phone,email,address,instrument,level,
+       parent_name,parent_phone,note,status, total_sessions || 0, req.params.id]
     );
     res.json({ success: true, message: 'Cập nhật thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
