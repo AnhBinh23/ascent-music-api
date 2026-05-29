@@ -37,7 +37,16 @@ exports.getByTeacher = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     const { class_id, date, time, salary_earned, note } = req.body;
-    const teacher_id = req.body.teacher_id || req.user.id;
+
+    // ✅ Lookup teachers.id từ user_id (teacher-001 → gv-001)
+    const userId = req.user.id;
+    const [teacherRows] = await db.query(
+      'SELECT id FROM teachers WHERE user_id = ?', [userId]
+    );
+    if (!teacherRows.length) {
+      return res.status(404).json({ message: 'Không tìm thấy giáo viên' });
+    }
+    const teacher_id = teacherRows[0].id; // gv-001
 
     await db.query(
       'INSERT INTO checkin (teacher_id, class_id, date, time, salary_earned, note) VALUES (?,?,?,?,?,?)',
