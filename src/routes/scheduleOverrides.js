@@ -2,7 +2,6 @@ const router = require('express').Router();
 const auth   = require('../middleware/auth');
 const db     = require('../models/db');
 
-// GET /api/schedule-overrides?start_date=&end_date=&teacher_id=
 router.get('/', auth, async (req, res) => {
   try {
     const { start_date, end_date, teacher_id } = req.query;
@@ -22,26 +21,25 @@ router.get('/', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// POST /api/schedule-overrides — tạo/cập nhật ngoại lệ tuần
 router.post('/', auth, async (req, res) => {
   try {
-    const { schedule_id, original_date, new_time_start, new_time_end, room_id, status, note } = req.body;
+    const { schedule_id, original_date, new_day_of_week, new_time_start, new_time_end, room_id, status, note } = req.body;
     await db.query(`
       INSERT INTO schedule_overrides
-        (schedule_id, original_date, new_time_start, new_time_end, room_id, status, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (schedule_id, original_date, new_day_of_week, new_time_start, new_time_end, room_id, status, note)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
-        new_time_start = VALUES(new_time_start),
-        new_time_end   = VALUES(new_time_end),
-        room_id        = VALUES(room_id),
-        status         = VALUES(status),
-        note           = VALUES(note)
-    `, [schedule_id, original_date, new_time_start, new_time_end, room_id||null, status||'rescheduled', note||null]);
+        new_day_of_week = VALUES(new_day_of_week),
+        new_time_start  = VALUES(new_time_start),
+        new_time_end    = VALUES(new_time_end),
+        room_id         = VALUES(room_id),
+        status          = VALUES(status),
+        note            = VALUES(note)
+    `, [schedule_id, original_date, new_day_of_week||null, new_time_start, new_time_end, room_id||null, status||'rescheduled', note||null]);
     res.json({ success: true, message: 'Đã lưu lịch ngoại lệ!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// DELETE /api/schedule-overrides/:scheduleId/:date — hoàn tác về lịch gốc
 router.delete('/:scheduleId/:date', auth, async (req, res) => {
   try {
     await db.query(
