@@ -2,27 +2,27 @@ const db = require('../models/db');
 
 exports.getAll = async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT
-        s.*,
-        t.name       AS teacher_name,
-        r.name       AS room_name,
-        c.name       AS class_name,
-        c.type       AS class_type,
-        c.instrument AS instrument,
+    const { teacher_id } = req.query;
+    let query = `
+      SELECT s.*, t.name AS teacher_name, r.name AS room_name,
+        c.name AS class_name, c.type AS class_type, c.instrument,
         (SELECT st.name FROM students st
          INNER JOIN class_students cs ON cs.student_id = st.id
-         WHERE cs.class_id = c.id
-         ORDER BY st.name ASC LIMIT 1) AS student_name,
-        (SELECT COUNT(*) FROM class_students cs
-         WHERE cs.class_id = c.id)     AS student_count
+         WHERE cs.class_id = c.id ORDER BY st.name ASC LIMIT 1) AS student_name,
+        (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id) AS student_count
       FROM schedules s
       LEFT JOIN teachers t ON s.teacher_id = t.id
       LEFT JOIN rooms    r ON s.room_id    = r.id
       LEFT JOIN classes  c ON s.class_id   = c.id
       WHERE s.status = 'active'
-      ORDER BY s.day_of_week, s.time_start
-    `);
+    `;
+    const params = [];
+    if (teacher_id) {
+      query += ' AND s.teacher_id = ?';
+      params.push(teacher_id);
+    }
+    query += ' ORDER BY s.day_of_week, s.time_start';
+    const [rows] = await db.query(query, params);
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
