@@ -55,15 +55,23 @@ exports.create = async (req, res) => {
   try {
     const {
       name, instrument, type, teacher_id, room_id, max_students,
-      level, tuition_fee, schedule, start_date, end_date, status, note
+      level, tuition_fee, schedule, start_date, end_date, status, note,
+      teacher_salary, teacher_salary_partial,
     } = req.body;
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO classes
-       (name,instrument,type,teacher_id,room_id,max_students,level,tuition_fee,schedule,start_date,end_date,status,note)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [name,instrument,type,teacher_id,room_id,max_students,level,tuition_fee,schedule,start_date,end_date,status,note]
+       (name,instrument,type,teacher_id,room_id,max_students,level,
+        tuition_fee,schedule,start_date,end_date,status,note,
+        teacher_salary,teacher_salary_partial)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        name, instrument, type||'1v1', teacher_id, room_id||null,
+        max_students||1, level, tuition_fee||0, schedule,
+        start_date||null, end_date||null, status||'Đang học', note||null,
+        teacher_salary||0, teacher_salary_partial||0,
+      ]
     );
-    res.json({ success: true, message: 'Tạo lớp học thành công!' });
+    res.json({ success: true, id: result.insertId, message: 'Tạo lớp học thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 
@@ -71,13 +79,22 @@ exports.update = async (req, res) => {
   try {
     const {
       name, instrument, type, teacher_id, room_id, max_students,
-      level, tuition_fee, schedule, start_date, end_date, status, note
+      level, tuition_fee, schedule, start_date, end_date, status, note,
+      teacher_salary, teacher_salary_partial,
     } = req.body;
     await db.query(
-      `UPDATE classes SET name=?,instrument=?,type=?,teacher_id=?,room_id=?,
-       max_students=?,level=?,tuition_fee=?,schedule=?,start_date=?,end_date=?,status=?,note=?
+      `UPDATE classes SET
+        name=?,instrument=?,type=?,teacher_id=?,room_id=?,max_students=?,
+        level=?,tuition_fee=?,schedule=?,start_date=?,end_date=?,status=?,note=?,
+        teacher_salary=?,teacher_salary_partial=?
        WHERE id=?`,
-      [name,instrument,type,teacher_id,room_id,max_students,level,tuition_fee,schedule,start_date,end_date,status,note,req.params.id]
+      [
+        name, instrument, type, teacher_id, room_id||null, max_students||1,
+        level, tuition_fee||0, schedule, start_date||null, end_date||null,
+        status||'Đang học', note||null,
+        teacher_salary||0, teacher_salary_partial||0,
+        req.params.id,
+      ]
     );
     res.json({ success: true, message: 'Cập nhật thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
