@@ -33,19 +33,19 @@ exports.getById = async (req, res) => {
 exports.getStudents = async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT s.*,
+      SELECT s.*, cs.course_number,
         ROUND(
           COALESCE(
             (SELECT COUNT(*) FROM attendance a
-             WHERE a.student_id = s.id AND a.class_id = ? AND a.status = 'present')
+             WHERE a.student_id=s.id AND a.class_id=? AND a.status='present')
             * 100.0 /
             NULLIF((SELECT COUNT(*) FROM attendance a
-                    WHERE a.student_id = s.id AND a.class_id = ?), 0)
-          , 0)
-        , 0) AS attendance_rate
+                    WHERE a.student_id=s.id AND a.class_id=?),0)
+          ,0)
+        ,0) AS attendance_rate
       FROM students s
-      INNER JOIN class_students cs ON cs.student_id = s.id
-      WHERE cs.class_id = ?
+      INNER JOIN class_students cs ON cs.student_id=s.id
+      WHERE cs.class_id=?
     `, [req.params.id, req.params.id, req.params.id]);
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -106,3 +106,14 @@ exports.delete = async (req, res) => {
     res.json({ success: true, message: 'Đã xóa lớp học!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
+exports.updateStudentCourse = async (req, res) => {
+  try {
+    const { course_number } = req.body;
+    await db.query(
+      'UPDATE class_students SET course_number=? WHERE class_id=? AND student_id=?',
+      [course_number, req.params.id, req.params.studentId]
+    );
+    res.json({ success: true, message: 'Đã cập nhật khóa học!' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
+
