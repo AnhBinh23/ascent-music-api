@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const ctrl   = require('../controllers/classController');
 const auth   = require('../middleware/auth');
 const role   = require('../middleware/role');
 const db     = require('../models/db');
@@ -40,6 +41,26 @@ router.get('/:id/students', auth, async (req, res) => {
       WHERE cs.class_id = ?
       ORDER BY s.name ASC
     `, [req.params.id, req.params.id, req.params.id]);
+    res.json({ success: true, rows });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// GET /api/classes/:id/students/:studentId/course-history — lịch sử khóa học
+router.get('/:id/students/:studentId/course-history', auth, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        t.course_number,
+        t.sessions,
+        t.amount,
+        t.paid,
+        t.status,
+        t.note,
+        t.created_at
+      FROM tuition t
+      WHERE t.student_id = ? AND t.class_id = ?
+      ORDER BY t.course_number ASC
+    `, [req.params.studentId, req.params.id]);
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
