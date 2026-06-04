@@ -80,6 +80,40 @@ router.patch('/:id/students/:studentId/course', auth, role('admin','staff'), asy
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// POST /api/classes/:id/students — thêm học viên vào lớp
+router.post('/:id/students', auth, role('admin','staff'), async (req, res) => {
+  try {
+    const { student_id, course_number = 1 } = req.body;
+    if (!student_id) {
+      return res.status(400).json({ message: 'Thiếu student_id!' });
+    }
+    // Kiểm tra trùng
+    const [existing] = await db.query(
+      'SELECT id FROM class_students WHERE class_id=? AND student_id=?',
+      [req.params.id, student_id]
+    );
+    if (existing.length > 0) {
+      return res.status(409).json({ message: 'Học viên đã có trong lớp!' });
+    }
+    await db.query(
+      'INSERT INTO class_students (class_id, student_id, course_number) VALUES (?,?,?)',
+      [req.params.id, student_id, Number(course_number) || 1]
+    );
+    res.json({ success: true, message: 'Đã thêm học viên vào lớp!' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// DELETE /api/classes/:id/students/:studentId — xóa học viên khỏi lớp
+router.delete('/:id/students/:studentId', auth, role('admin','staff'), async (req, res) => {
+  try {
+    await db.query(
+      'DELETE FROM class_students WHERE class_id=? AND student_id=?',
+      [req.params.id, req.params.studentId]
+    );
+    res.json({ success: true, message: 'Đã xóa học viên khỏi lớp!' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 // GET /api/classes/:id
 router.get('/:id', auth, async (req, res) => {
   try {
