@@ -1,5 +1,6 @@
 const db    = require('../models/db');
 const axios = require('axios');
+const { sendPushToUser } = require('../routes/push');
 require('dotenv').config();
 
 const ZALO_TOKEN = process.env.ZALO_OA_TOKEN;
@@ -28,7 +29,6 @@ exports.getForUser = async (req, res) => {
   try {
     const { role } = req.user;
 
-    // Admin xem tất cả
     if (role === 'admin') {
       const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
@@ -40,7 +40,6 @@ exports.getForUser = async (req, res) => {
       return res.json({ success: true, rows });
     }
 
-    // Giáo viên chỉ thấy 'all' hoặc 'teachers'
     if (role === 'teacher') {
       const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
@@ -53,7 +52,6 @@ exports.getForUser = async (req, res) => {
       return res.json({ success: true, rows });
     }
 
-    // Học viên chỉ thấy 'all' hoặc 'students'
     if (role === 'student') {
       const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
@@ -72,17 +70,19 @@ exports.getForUser = async (req, res) => {
   }
 };
 
-// Gửi thông báo
+// Gửi thông báo (lưu DB + web push + Zalo)
 exports.send = async (req, res) => {
   try {
     const { title, message, recipient, specific_ids } = req.body;
     if (!title || !message) return res.status(400).json({ message: 'Thiếu tiêu đề hoặc nội dung!' });
 
+    // 1. Lưu vào DB
     await db.query(
       'INSERT INTO notifications (title, message, type, recipient, sent_by) VALUES (?,?,?,?,?)',
       [title, message, 'manual', recipient, req.user.id]
     );
 
+    // 2. Xác định danh sách người nhận
     let users = [];
     if (recipient === 'all') {
       const [rows] = await db.query("SELECT * FROM users WHERE status = 'active'");
@@ -98,6 +98,15 @@ exports.send = async (req, res) => {
       users = rows;
     }
 
+    // 3. Gửi WEB PUSH tới điện thoại/trình duyệt (kể cả khi không mở app)
+    let pushSent = 0;
+    const payload = { title, body: message, url: '/' };
+    const pushResults = await Promise.allSettled(
+      users.map(user => sendPushToUser(user.id, payload))
+    );
+    pushSent = pushResults.filter(r => r.status === 'fulfilled').length;
+
+    // 4. Gửi Zalo (nếu đã cấu hình OA Token)
     let zaloSent = 0;
     if (ZALO_TOKEN && ZALO_TOKEN !== 'your_oa_access_token_here') {
       for (const user of users) {
@@ -112,6 +121,7 @@ exports.send = async (req, res) => {
       success: true,
       message: `Đã gửi thông báo cho ${users.length} người!`,
       total:   users.length,
+      push:    pushSent,
       zalo:    zaloSent,
     });
   } catch (err) {
