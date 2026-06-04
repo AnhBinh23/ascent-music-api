@@ -44,6 +44,23 @@ router.get('/stats', auth, role('admin','staff'), async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// GET /api/tuition/report — doanh thu theo từng tháng
+router.get('/report', auth, role('admin','staff'), async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        DATE_FORMAT(created_at, '%m/%Y') AS month,
+        SUM(amount)        AS revenue,
+        SUM(paid)          AS collected,
+        SUM(amount - paid) AS unpaid
+      FROM tuition
+      GROUP BY YEAR(created_at), MONTH(created_at)
+      ORDER BY YEAR(created_at), MONTH(created_at)
+    `);
+    res.json({ success: true, rows });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 // POST /api/tuition — TẠO HÓA ĐƠN (có thể chưa thu)
 router.post('/', auth, role('admin','staff'), async (req, res) => {
   try {
