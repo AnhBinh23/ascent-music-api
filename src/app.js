@@ -42,6 +42,7 @@ app.use('/api/invoices',         require('./routes/invoices'));
 app.use('/api/attendance',       require('./routes/attendance'));
 app.use('/api/checkin',          require('./routes/checkin'));
 app.use('/api/rooms',            require('./routes/rooms'));
+app.use('/api/instruments',      require('./routes/instruments'));
 app.use('/api/notifications',    require('./routes/notifications'));
 app.use('/api/lesson-logs',      require('./routes/lessonLogs'));
 app.use('/api/materials',        require('./routes/materials'));
