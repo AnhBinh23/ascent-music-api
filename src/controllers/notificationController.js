@@ -12,10 +12,7 @@ const sendZaloMessage = async (userId, message) => {
       recipient: { user_id: userId },
       message:   { text: message },
     }, {
-      headers: {
-        'access_token': ZALO_TOKEN,
-        'Content-Type': 'application/json',
-      }
+      headers: { 'access_token': ZALO_TOKEN, 'Content-Type': 'application/json' }
     });
     return true;
   } catch (err) {
@@ -32,81 +29,84 @@ exports.getForUser = async (req, res) => {
     if (role === 'admin') {
       const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
-        FROM notifications n
-        LEFT JOIN users u ON n.sent_by = u.id
-        ORDER BY n.created_at DESC
-        LIMIT 30
+        FROM notifications n LEFT JOIN users u ON n.sent_by = u.id
+        ORDER BY n.created_at DESC LIMIT 30
       `);
       return res.json({ success: true, rows });
     }
-
     if (role === 'teacher') {
       const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
-        FROM notifications n
-        LEFT JOIN users u ON n.sent_by = u.id
+        FROM notifications n LEFT JOIN users u ON n.sent_by = u.id
         WHERE n.recipient = 'all' OR n.recipient = 'teachers'
-        ORDER BY n.created_at DESC
-        LIMIT 20
+        ORDER BY n.created_at DESC LIMIT 20
       `);
       return res.json({ success: true, rows });
     }
-
     if (role === 'student') {
       const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
-        FROM notifications n
-        LEFT JOIN users u ON n.sent_by = u.id
+        FROM notifications n LEFT JOIN users u ON n.sent_by = u.id
         WHERE n.recipient = 'all' OR n.recipient = 'students'
-        ORDER BY n.created_at DESC
-        LIMIT 20
+        ORDER BY n.created_at DESC LIMIT 20
       `);
       return res.json({ success: true, rows });
     }
-
     res.json({ success: true, rows: [] });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// Gửi thông báo (lưu DB + web push + Zalo)
+// Gửi thông báo: lưu DB + (tùy chọn) push + (tùy chọn) banner + Zalo
 exports.send = async (req, res) => {
   try {
-    const { title, message, recipient, specific_ids } = req.body;
+    const {
+      title, message, recipient, specific_ids,
+      send_push = true,              // có đẩy push không
+      show_banner = false,           // có ghim banner trong app không
+      banner_type = 'info',
+      banner_start = null,
+      banner_end = null,
+    } = req.body;
+
     if (!title || !message) return res.status(400).json({ message: 'Thiếu tiêu đề hoặc nội dung!' });
 
-    // 1. Lưu vào DB
+    // 1. Lưu vào DB (kèm thông tin banner nếu có)
     await db.query(
-      'INSERT INTO notifications (title, message, type, recipient, sent_by) VALUES (?,?,?,?,?)',
-      [title, message, 'manual', recipient, req.user.id]
+      `INSERT INTO notifications
+       (title, message, type, recipient, sent_by, show_banner, banner_type, banner_start, banner_end, banner_active)
+       VALUES (?,?,?,?,?,?,?,?,?,1)`,
+      [
+        title, message, 'manual', recipient, req.user.id,
+        show_banner ? 1 : 0,
+        banner_type,
+        show_banner ? banner_start : null,
+        show_banner ? banner_end   : null,
+      ]
     );
 
-    // 2. Xác định danh sách người nhận
+    // 2. Xác định người nhận
     let users = [];
     if (recipient === 'all') {
-      const [rows] = await db.query("SELECT * FROM users WHERE status = 'active'");
-      users = rows;
+      [users] = await db.query("SELECT * FROM users WHERE status = 'active'");
     } else if (recipient === 'students') {
-      const [rows] = await db.query("SELECT * FROM users WHERE role = 'student' AND status = 'active'");
-      users = rows;
+      [users] = await db.query("SELECT * FROM users WHERE role = 'student' AND status = 'active'");
     } else if (recipient === 'teachers') {
-      const [rows] = await db.query("SELECT * FROM users WHERE role = 'teacher' AND status = 'active'");
-      users = rows;
+      [users] = await db.query("SELECT * FROM users WHERE role = 'teacher' AND status = 'active'");
     } else if (recipient === 'specific' && specific_ids?.length) {
-      const [rows] = await db.query('SELECT * FROM users WHERE id IN (?)', [specific_ids]);
-      users = rows;
+      [users] = await db.query('SELECT * FROM users WHERE id IN (?)', [specific_ids]);
     }
 
-    // 3. Gửi WEB PUSH tới điện thoại/trình duyệt (kể cả khi không mở app)
+    // 3. Web push (chỉ khi được chọn)
     let pushSent = 0;
-    const payload = { title, body: message, url: '/' };
-    const pushResults = await Promise.allSettled(
-      users.map(user => sendPushToUser(user.id, payload))
-    );
-    pushSent = pushResults.filter(r => r.status === 'fulfilled').length;
+    if (send_push) {
+      const payload = { title, body: message, url: '/' };
+      const results = await Promise.allSettled(users.map(u => sendPushToUser(u.id, payload)));
+      pushSent = results.filter(r => r.status === 'fulfilled' && r.value).length;
+    }
 
-    // 4. Gửi Zalo (nếu đã cấu hình OA Token)
+    // 4. Zalo (nếu có token)
     let zaloSent = 0;
     if (ZALO_TOKEN && ZALO_TOKEN !== 'your_oa_access_token_here') {
       for (const user of users) {
@@ -122,8 +122,36 @@ exports.send = async (req, res) => {
       message: `Đã gửi thông báo cho ${users.length} người!`,
       total:   users.length,
       push:    pushSent,
+      banner:  show_banner ? 1 : 0,
       zalo:    zaloSent,
     });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Lấy banner đang hiển thị (cho mọi user)
+exports.getBanners = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT id, title, message, banner_type AS type, banner_start, banner_end
+      FROM notifications
+      WHERE show_banner = 1 AND banner_active = 1
+        AND (banner_start IS NULL OR banner_start <= CURDATE())
+        AND (banner_end   IS NULL OR banner_end   >= CURDATE())
+      ORDER BY created_at DESC
+    `);
+    res.json({ success: true, rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Ẩn 1 banner (admin)
+exports.hideBanner = async (req, res) => {
+  try {
+    await db.query('UPDATE notifications SET banner_active = 0 WHERE id = ?', [req.params.id]);
+    res.json({ success: true, message: 'Đã ẩn banner!' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -134,10 +162,8 @@ exports.getHistory = async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT n.*, u.name AS sender_name
-      FROM notifications n
-      LEFT JOIN users u ON n.sent_by = u.id
-      ORDER BY n.created_at DESC
-      LIMIT 50
+      FROM notifications n LEFT JOIN users u ON n.sent_by = u.id
+      ORDER BY n.created_at DESC LIMIT 50
     `);
     res.json({ success: true, rows });
   } catch (err) {

@@ -1,6 +1,7 @@
 const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
+const cron    = require('node-cron');
 require('dotenv').config();
 
 const app = express();
@@ -51,6 +52,17 @@ app.use('/api/push',             require('./routes/push').router);
 app.use('/api/ai',               require('./routes/ai'));
 app.use('/api/salary',           require('./routes/salaryPayments'));
 app.use('/api/schedule-overrides', require('./routes/scheduleOverrides'));
+
+// ─── CRON: Nhắc lịch học trước 30 phút (chạy mỗi phút, giờ Việt Nam) ───
+const { remindUpcomingClasses } = require('./routes/push');
+cron.schedule('* * * * *', async () => {
+  try {
+    const sent = await remindUpcomingClasses();
+    if (sent > 0) console.log(`⏰ Đã nhắc ${sent} buổi học sắp tới`);
+  } catch (e) {
+    console.error('Cron remind error:', e.message);
+  }
+}, { timezone: 'Asia/Ho_Chi_Minh' });
 
 app.get('/', (req, res) => res.json({ message: '🎵 Ascent Music API đang chạy!' }));
 app.use((req, res) => res.status(404).json({ message: 'Route không tồn tại' }));

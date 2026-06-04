@@ -13,6 +13,10 @@ router.post('/', auth, role('admin', 'teacher'), ctrl.send);
 // Lịch sử thông báo
 router.get('/history', auth, ctrl.getHistory);
 
+// ─── Banner hiển thị trong app ───
+router.get('/banners', auth, ctrl.getBanners);                              // mọi user xem banner đang hiện
+router.put('/banners/:id/hide', auth, role('admin', 'teacher'), ctrl.hideBanner);  // admin ẩn banner
+
 // Webhook Zalo
 router.post('/zalo/webhook', async (req, res) => {
   try {
@@ -20,15 +24,9 @@ router.post('/zalo/webhook', async (req, res) => {
     console.log('📱 Zalo webhook nhận:', event_name, follower);
 
     if (event_name === 'follow' && follower?.id) {
-      const [users] = await db.query(
-        'SELECT * FROM users WHERE phone = ?',
-        [follower.phone]
-      );
+      const [users] = await db.query('SELECT * FROM users WHERE phone = ?', [follower.phone]);
       if (users.length) {
-        await db.query(
-          'UPDATE users SET zalo_id = ? WHERE phone = ?',
-          [follower.id, follower.phone]
-        );
+        await db.query('UPDATE users SET zalo_id = ? WHERE phone = ?', [follower.id, follower.phone]);
         console.log(`✅ Đã lưu Zalo ID cho ${follower.display_name}: ${follower.id}`);
       } else {
         console.log(`⚠️ Không tìm thấy user với SĐT: ${follower.phone}`);
@@ -36,10 +34,7 @@ router.post('/zalo/webhook', async (req, res) => {
     }
 
     if (event_name === 'unfollow' && follower?.id) {
-      await db.query(
-        'UPDATE users SET zalo_id = NULL WHERE zalo_id = ?',
-        [follower.id]
-      );
+      await db.query('UPDATE users SET zalo_id = NULL WHERE zalo_id = ?', [follower.id]);
       console.log(`❌ Học viên ${follower.display_name} đã hủy follow OA`);
     }
 
@@ -66,10 +61,7 @@ router.get('/zalo/followers', auth, role('admin'), async (req, res) => {
 router.put('/zalo/update/:userId', auth, role('admin'), async (req, res) => {
   try {
     const { zalo_id } = req.body;
-    await db.query(
-      'UPDATE users SET zalo_id = ? WHERE id = ?',
-      [zalo_id, req.params.userId]
-    );
+    await db.query('UPDATE users SET zalo_id = ? WHERE id = ?', [zalo_id, req.params.userId]);
     res.json({ success: true, message: 'Cập nhật Zalo ID thành công!' });
   } catch (err) {
     res.status(500).json({ message: err.message });
