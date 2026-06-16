@@ -80,10 +80,10 @@ router.patch('/:id/students/:studentId/course', auth, role('admin','staff'), asy
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// POST /api/classes/:id/students — thêm học viên vào lớp
+// POST /api/classes/:id/students — thêm học viên vào lớp (+ gán tổng số buổi)
 router.post('/:id/students', auth, role('admin','staff'), async (req, res) => {
   try {
-    const { student_id, course_number = 1 } = req.body;
+    const { student_id, course_number = 1, total_sessions } = req.body;
     if (!student_id) {
       return res.status(400).json({ message: 'Thiếu student_id!' });
     }
@@ -99,6 +99,15 @@ router.post('/:id/students', auth, role('admin','staff'), async (req, res) => {
       'INSERT INTO class_students (class_id, student_id, course_number) VALUES (?,?,?)',
       [req.params.id, student_id, Number(course_number) || 1]
     );
+
+    // Gán tổng số buổi (gói khóa học) cho học viên
+    if (total_sessions) {
+      await db.query(
+        'UPDATE students SET total_sessions = ? WHERE id = ?',
+        [Number(total_sessions), student_id]
+      );
+    }
+
     res.json({ success: true, message: 'Đã thêm học viên vào lớp!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
@@ -153,13 +162,13 @@ router.post('/', auth, role('admin','staff'), async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// PUT /api/classes/:id
+// PUT /api/classes/:id (+ cập nhật tổng số buổi cho HV trong lớp)
 router.put('/:id', auth, role('admin','staff'), async (req, res) => {
   try {
     const {
       name, instrument, type, teacher_id, room_id, max_students,
       level, tuition_fee, schedule, start_date, end_date, status, note,
-      teacher_salary, teacher_salary_partial,
+      teacher_salary, teacher_salary_partial, total_sessions,
     } = req.body;
     await db.query(
       `UPDATE classes SET
@@ -175,6 +184,16 @@ router.put('/:id', auth, role('admin','staff'), async (req, res) => {
         req.params.id,
       ]
     );
+
+    // Cập nhật tổng số buổi (gói khóa học) cho tất cả HV trong lớp
+    if (total_sessions) {
+      await db.query(
+        `UPDATE students SET total_sessions = ?
+         WHERE id IN (SELECT student_id FROM class_students WHERE class_id = ?)`,
+        [Number(total_sessions), req.params.id]
+      );
+    }
+
     res.json({ success: true, message: 'Cập nhật thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
