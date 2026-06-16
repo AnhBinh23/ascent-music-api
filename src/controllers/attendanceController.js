@@ -25,10 +25,11 @@ exports.save = async (req, res) => {
     const { attendanceList } = req.body;
     for (const item of attendanceList) {
       await db.query(`
-        INSERT INTO attendance (class_id, student_id, date, status, note)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO attendance (class_id, student_id, date, status, note, course_number)
+        VALUES (?, ?, ?, ?, ?,
+          COALESCE((SELECT course_number FROM class_students WHERE class_id = ? AND student_id = ? LIMIT 1), 1))
         ON DUPLICATE KEY UPDATE status = VALUES(status), note = VALUES(note)
-      `, [item.class_id, item.student_id, item.date, item.status, item.note]);
+      `, [item.class_id, item.student_id, item.date, item.status, item.note, item.class_id, item.student_id]);
     }
     res.json({ success: true, message: 'Lưu điểm danh thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }

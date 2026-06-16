@@ -34,7 +34,7 @@ router.get('/student-history/:studentId', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Tổng quan TẤT CẢ học viên (kể cả chưa vào lớp)
+// Tổng quan TẤT CẢ học viên — CHỈ tính buổi của khóa hiện tại (s.current_course)
 router.get('/course-progress', auth, role('admin','staff'), async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -43,6 +43,7 @@ router.get('/course-progress', auth, role('admin','staff'), async (req, res) => 
         s.name           AS student_name,
         s.phone          AS student_phone,
         s.total_sessions,
+        s.current_course,
         s.instrument,
         s.level,
         COALESCE(c.id,   NULL) AS class_id,
@@ -55,8 +56,9 @@ router.get('/course-progress', auth, role('admin','staff'), async (req, res) => 
       LEFT JOIN classes  c  ON c.id  = cs.class_id
       LEFT JOIN teachers t  ON t.id  = c.teacher_id
       LEFT JOIN attendance a ON a.student_id = s.id AND a.class_id = c.id
+                            AND a.course_number = s.current_course
       WHERE s.status = 'active'
-      GROUP BY s.id, s.name, s.phone, s.total_sessions, s.instrument, s.level,
+      GROUP BY s.id, s.name, s.phone, s.total_sessions, s.current_course, s.instrument, s.level,
                c.id, c.name, t.name, c.type
       ORDER BY
         (s.total_sessions - COUNT(CASE WHEN a.status IN ('present','late') THEN 1 END)) ASC,
@@ -66,6 +68,7 @@ router.get('/course-progress', auth, role('admin','staff'), async (req, res) => 
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// Chi tiết buổi của 1 HV trong 1 lớp — CHỈ khóa hiện tại của HV đó
 router.get('/student-sessions/:studentId/:classId', auth, async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -74,6 +77,7 @@ router.get('/student-sessions/:studentId/:classId', auth, async (req, res) => {
       LEFT JOIN schedules sc ON sc.class_id = a.class_id
         AND sc.day_of_week = DAYOFWEEK(a.date)
       WHERE a.student_id = ? AND a.class_id = ?
+        AND a.course_number = (SELECT current_course FROM students WHERE id = a.student_id)
       ORDER BY a.date ASC
     `, [req.params.studentId, req.params.classId]);
     res.json({ success: true, rows });
@@ -93,7 +97,7 @@ router.get('/table/:classId', auth, role('admin','staff'), async (req, res) => {
     `, [req.params.classId]);
 
     const [records] = await db.query(`
-      SELECT student_id, date, status, note
+      SELECT student_id, date, status, note, course_number
       FROM attendance WHERE class_id = ?
       ORDER BY student_id, date ASC
     `, [req.params.classId]);
@@ -111,11 +115,9 @@ router.get('/table/:classId', auth, role('admin','staff'), async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-
-// Bảng tổng hợp TẤT CẢ học viên từ TẤT CẢ lớp
+// Bảng tổng hợp TẤT CẢ học viên — xem được TẤT CẢ khóa (có course_number để lọc)
 router.get('/all-table', auth, role('admin','staff'), async (req, res) => {
   try {
-    // Lấy tất cả học viên đã vào lớp
     const [students] = await db.query(`
       SELECT DISTINCT
         s.id, s.name, s.total_sessions,
@@ -134,14 +136,12 @@ router.get('/all-table', auth, role('admin','staff'), async (req, res) => {
 
     if (!students.length) return res.json({ success: true, rows: [], maxSessions: 0 });
 
-    // Lấy tất cả điểm danh
     const [records] = await db.query(`
-      SELECT student_id, class_id, date, status, note
+      SELECT student_id, class_id, date, status, note, course_number
       FROM attendance
       ORDER BY student_id, class_id, date ASC
     `);
 
-    // Map theo student_id + class_id
     const byKey = {};
     records.forEach(r => {
       const key = r.student_id + '_' + r.class_id;
