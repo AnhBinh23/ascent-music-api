@@ -88,7 +88,8 @@ router.get('/table/:classId', auth, role('admin','staff'), async (req, res) => {
   try {
     const [students] = await db.query(`
       SELECT s.id, s.name, s.total_sessions,
-        c.type AS class_type, c.instrument
+        c.type AS class_type, c.instrument,
+        cs.course_number AS student_course
       FROM students s
       INNER JOIN class_students cs ON cs.student_id = s.id
       INNER JOIN classes c ON c.id = cs.class_id
@@ -125,7 +126,8 @@ router.get('/all-table', auth, role('admin','staff'), async (req, res) => {
         c.name AS class_name,
         c.type AS class_type,
         c.instrument,
-        t.name AS teacher_name
+        t.name AS teacher_name,
+        cs.course_number AS student_course
       FROM students s
       INNER JOIN class_students cs ON cs.student_id = s.id
       INNER JOIN classes  c ON c.id  = cs.class_id
