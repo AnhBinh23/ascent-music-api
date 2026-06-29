@@ -16,12 +16,28 @@ router.get('/salary', auth, role('admin'), async (req, res) => {
         c.id            AS class_id,
         c.name          AS class_name,
         c.type          AS class_type,
-        COALESCE(c.teacher_salary, 0)          AS teacher_salary,
-        COALESCE(c.teacher_salary_partial, 0)  AS teacher_salary_partial,
-        COALESCE(COUNT(ci.id), 0)              AS sessions_this_month,
-        COALESCE(SUM(ci.salary_earned),
+        COALESCE(c.teacher_salary, 0)         AS teacher_salary,
+        COALESCE(c.teacher_salary_partial, 0) AS teacher_salary_partial,
+        COALESCE(COUNT(ci.id), 0)             AS sessions_this_month,
+
+        -- Buổi đủ HV (lương đầy đủ)
+        COALESCE(SUM(
+          CASE WHEN ci.salary_earned >= c.teacher_salary AND c.teacher_salary > 0
+          THEN 1 ELSE 0 END
+        ), 0) AS sessions_full,
+
+        -- Buổi có HV vắng (lương giảm)
+        COALESCE(SUM(
+          CASE WHEN ci.salary_earned > 0
+            AND ci.salary_earned < c.teacher_salary
+          THEN 1 ELSE 0 END
+        ), 0) AS sessions_partial,
+
+        COALESCE(
+          SUM(ci.salary_earned),
           COUNT(ci.id) * COALESCE(c.teacher_salary, 0)
         ) AS class_salary
+
       FROM teachers t
       LEFT JOIN classes c
         ON c.teacher_id = t.id AND c.status = 'Đang học'
