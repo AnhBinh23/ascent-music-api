@@ -14,14 +14,12 @@ router.post('/subscribe', auth, async (req, res) => {
   try {
     const { subscription } = req.body;
     const userId = req.user.id;
-
     await db.query(
       `INSERT INTO push_subscriptions (user_id, subscription)
        VALUES (?, ?)
        ON DUPLICATE KEY UPDATE subscription = ?`,
       [userId, JSON.stringify(subscription), JSON.stringify(subscription)]
     );
-
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -32,27 +30,16 @@ router.post('/subscribe', auth, async (req, res) => {
 router.post('/send', auth, async (req, res) => {
   try {
     const { title, body, userIds } = req.body;
-
     let query  = 'SELECT * FROM push_subscriptions';
     let params = [];
-
-    if (userIds?.length) {
-      query  += ' WHERE user_id IN (?)';
-      params  = [userIds];
-    }
-
+    if (userIds?.length) { query += ' WHERE user_id IN (?)'; params = [userIds]; }
     const [subs] = await db.query(query, params);
-
     const payload = JSON.stringify({ title, body });
     const results = await Promise.allSettled(
-      subs.map(sub =>
-        webpush.sendNotification(JSON.parse(sub.subscription), payload)
-      )
+      subs.map(sub => webpush.sendNotification(JSON.parse(sub.subscription), payload))
     );
-
     const sent   = results.filter(r => r.status === 'fulfilled').length;
     const failed = results.filter(r => r.status === 'rejected').length;
-
     res.json({ success: true, sent, failed });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -67,7 +54,6 @@ async function sendPushToUser(toUserId, payload) {
       [toUserId]
     );
     if (!rows.length) return false;
-
     await webpush.sendNotification(
       JSON.parse(rows[0].subscription),
       JSON.stringify(payload)
@@ -75,7 +61,6 @@ async function sendPushToUser(toUserId, payload) {
     return true;
   } catch (err) {
     if (err.statusCode === 410) {
-      // Subscription hết hạn → xóa
       await db.query('DELETE FROM push_subscriptions WHERE user_id = ?', [toUserId]);
     }
     return false;
@@ -83,45 +68,71 @@ async function sendPushToUser(toUserId, payload) {
 }
 
 // ─── Nhắc lịch học trước 30 phút (gọi bởi cron) ───
-// An toàn timezone: luôn tính theo giờ Việt Nam, không phụ thuộc TZ của server.
 async function remindUpcomingClasses() {
-  // Giờ hiện tại theo Việt Nam
   const vnNow  = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-  const target = new Date(vnNow.getTime() + 30 * 60 * 1000); // 30 phút sau
+  const target = new Date(vnNow.getTime() + 30 * 60 * 1000);
 
   const hh  = String(target.getHours()).padStart(2, '0');
   const mm  = String(target.getMinutes()).padStart(2, '0');
   const timeHHMM = `${hh}:${mm}`;
-  // day_of_week theo convention DB: 1=CN, 2=T2 .. 7=T7
   const dow = target.getDay() === 0 ? 1 : target.getDay() + 1;
 
-  // Lấy các buổi học định kỳ khớp thứ + giờ, kèm user_id của học viên
+  // Lấy tất cả buổi học khớp thứ + giờ
   const [rows] = await db.query(`
-    SELECT sc.id, sc.time_start,
-           c.name  AS class_name,
-           r.name  AS room_name,
-           st.user_id AS student_user_id
+    SELECT
+      sc.id,
+      sc.time_start,
+      c.name      AS class_name,
+      c.id        AS class_id,
+      r.name      AS room_name,
+      t.user_id   AS teacher_user_id
     FROM schedules sc
-    JOIN classes c        ON sc.class_id = c.id
-    JOIN class_students cs ON cs.class_id = c.id
-    JOIN students st       ON st.id = cs.student_id
-    LEFT JOIN rooms r      ON sc.room_id = r.id
+    JOIN classes c    ON sc.class_id  = c.id
+    JOIN teachers t   ON sc.teacher_id = t.id
+    LEFT JOIN rooms r ON sc.room_id   = r.id
     WHERE sc.day_of_week = ?
       AND TIME_FORMAT(sc.time_start, '%H:%i') = ?
       AND sc.status = 'active'
-      AND st.status = 'active'
   `, [dow, timeHHMM]);
 
+  if (!rows.length) return 0;
+
   let sent = 0;
+
   for (const row of rows) {
-    if (!row.student_user_id) continue;
-    const ok = await sendPushToUser(row.student_user_id, {
-      title: '🎵 Nhắc lịch học Ascent Music',
-      body:  `Bạn có buổi học ${row.class_name} lúc ${String(row.time_start).slice(0, 5)} tại ${row.room_name || 'Ascent Music Center'}`,
-      url:   '/student/schedule',
-    });
-    if (ok) sent++;
+    const timeStr = String(row.time_start).slice(0, 5);
+    const room    = row.room_name || 'Ascent Music Center';
+
+    // 1. Nhắc giáo viên
+    if (row.teacher_user_id) {
+      const ok = await sendPushToUser(row.teacher_user_id, {
+        title: '📋 Nhắc lịch dạy',
+        body:  `Bạn có buổi dạy ${row.class_name} lúc ${timeStr} tại ${room}`,
+        url:   '/teacher/schedule',
+      });
+      if (ok) sent++;
+    }
+
+    // 2. Nhắc học viên có tài khoản app
+    const [students] = await db.query(`
+      SELECT st.user_id
+      FROM class_students cs
+      JOIN students st ON st.id = cs.student_id
+      WHERE cs.class_id = ?
+        AND st.user_id IS NOT NULL
+        AND st.status IN ('active', 'paused')
+    `, [row.class_id]);
+
+    for (const stu of students) {
+      const ok = await sendPushToUser(stu.user_id, {
+        title: '🎵 Nhắc lịch học Ascent Music',
+        body:  `Bạn có buổi học ${row.class_name} lúc ${timeStr} tại ${room}`,
+        url:   '/student/schedule',
+      });
+      if (ok) sent++;
+    }
   }
+
   return sent;
 }
 
