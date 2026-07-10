@@ -23,16 +23,12 @@ const callAI = async (systemPrompt, userMessage, maxTokens = 800) => {
       temperature: 0.7,
     })
   });
-
-  // Rate limit (quá nhiều request / token trong 1 phút)
   if (response.status === 429) throw new Error('RATE_LIMIT');
-
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
   return data.choices?.[0]?.message?.content || 'Không thể xử lý yêu cầu.';
 };
 
-// Helper xử lý lỗi chung
 const handleErr = (res, err, label) => {
   console.error(`${label} error:`, err.message);
   if (err.message === 'RATE_LIMIT') {
@@ -42,15 +38,13 @@ const handleErr = (res, err, label) => {
 };
 
 // ════════════════════════════════════════════════
-// ① Trợ lý AI cho Admin / Giáo viên
-//    → Context là SUMMARY tính sẵn (gọn token, tránh rate limit)
+// ① AI ADMIN — quản lý toàn trung tâm
 // ════════════════════════════════════════════════
-router.post('/assistant', auth, role('admin', 'teacher'), async (req, res) => {
+router.post('/assistant', auth, role('admin'), async (req, res) => {
   try {
     const { question } = req.body;
     if (!question) return res.status(400).json({ message: 'Thiếu câu hỏi!' });
 
-    // Chạy song song các query tổng hợp (nhẹ, đã aggregate sẵn)
     const [
       [[cntStudents]], [[cntTeachers]], [[cntClasses]],
       [unpaid], [today], [byTeacher], [byClassSize],
@@ -59,16 +53,12 @@ router.post('/assistant', auth, role('admin', 'teacher'), async (req, res) => {
       db.query("SELECT COUNT(*) AS n FROM students WHERE status='active'"),
       db.query("SELECT COUNT(*) AS n FROM teachers"),
       db.query("SELECT COUNT(*) AS n FROM classes WHERE status='Đang học'"),
-
-      // HV chưa đóng đủ học phí
       db.query(`
         SELECT s.name, t.amount, t.paid
         FROM tuition t JOIN students s ON t.student_id = s.id
         WHERE t.status != 'Đã thanh toán'
         ORDER BY (t.amount - t.paid) DESC LIMIT 30
       `),
-
-      // Buổi học hôm nay (DAYOFWEEK: 1=CN..7=T7, khớp convention DB)
       db.query(`
         SELECT c.name AS class_name, sc.time_start, sc.time_end, t.name AS teacher_name
         FROM schedules sc
@@ -77,32 +67,24 @@ router.post('/assistant', auth, role('admin', 'teacher'), async (req, res) => {
         WHERE sc.day_of_week = DAYOFWEEK(CURDATE()) AND sc.status = 'active'
         ORDER BY sc.time_start
       `),
-
-      // GV dạy nhiều lớp nhất
       db.query(`
         SELECT t.name, COUNT(c.id) AS so_lop
         FROM classes c JOIN teachers t ON c.teacher_id = t.id
         WHERE c.status = 'Đang học'
         GROUP BY t.id, t.name ORDER BY so_lop DESC
       `),
-
-      // Sĩ số mỗi lớp
       db.query(`
         SELECT c.name, COUNT(cs.student_id) AS so_hv
         FROM classes c LEFT JOIN class_students cs ON c.id = cs.class_id
         WHERE c.status = 'Đang học'
         GROUP BY c.id, c.name ORDER BY so_hv ASC
       `),
-
-      // Doanh thu 2 tháng gần nhất
       db.query(`
         SELECT DATE_FORMAT(created_at, '%m/%Y') AS thang, SUM(paid) AS thu
         FROM tuition
         WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 2 MONTH)
         GROUP BY thang ORDER BY thang
       `),
-
-      // HV vắng nhiều nhất
       db.query(`
         SELECT s.name, COUNT(*) AS so_vang
         FROM attendance a JOIN students s ON a.student_id = s.id
@@ -111,53 +93,144 @@ router.post('/assistant', auth, role('admin', 'teacher'), async (req, res) => {
       `),
     ]);
 
-    // ── Build context GỌN (text, không phải JSON thô) ──
-    const unpaidText = unpaid.length
-      ? unpaid.map(u => `${u.name} (còn ${fmt(u.amount - u.paid)})`).join('; ')
-      : 'Không có ai nợ học phí';
-
-    const todayText = today.length
-      ? today.map(s => `${s.class_name} ${String(s.time_start).slice(0,5)}-${String(s.time_end).slice(0,5)} (GV: ${s.teacher_name || '?'})`).join('; ')
-      : 'Hôm nay không có buổi học nào';
-
-    const teacherText = byTeacher.map(t => `${t.name}: ${t.so_lop} lớp`).join('; ');
-    const classSizeText = byClassSize.map(c => `${c.name}: ${c.so_hv} HV`).join('; ');
-    const revenueText = revenue.map(r => `${r.thang}: ${fmt(r.thu)}`).join(' | ');
-    const absentText = topAbsent.length
-      ? topAbsent.map(a => `${a.name}: ${a.so_vang} buổi`).join('; ')
-      : 'Chưa có dữ liệu điểm danh vắng';
-
-    const context = `DỮ LIỆU TRUNG TÂM ASCENT MUSIC CENTER (cập nhật thời gian thực):
-
-TỔNG QUAN: ${cntStudents.n} học viên đang học, ${cntTeachers.n} giáo viên, ${cntClasses.n} lớp đang hoạt động.
-
-BUỔI HỌC HÔM NAY: ${todayText}.
-
-HỌC PHÍ CHƯA ĐÓNG ĐỦ: ${unpaidText}.
-
-SĨ SỐ TỪNG LỚP (sắp xếp ít → nhiều): ${classSizeText}.
-
-GIÁO VIÊN & SỐ LỚP (nhiều → ít): ${teacherText}.
-
-DOANH THU GẦN ĐÂY: ${revenueText}.
-
-HỌC VIÊN VẮNG NHIỀU NHẤT: ${absentText}.`;
+    const context = `DỮ LIỆU ASCENT MUSIC CENTER:
+TỔNG QUAN: ${cntStudents.n} HV, ${cntTeachers.n} GV, ${cntClasses.n} lớp đang học.
+HÔM NAY: ${today.length ? today.map(s => `${s.class_name} ${String(s.time_start).slice(0,5)}-${String(s.time_end).slice(0,5)} (${s.teacher_name})`).join('; ') : 'Không có buổi học'}.
+HỌC PHÍ CHƯA ĐỦ: ${unpaid.length ? unpaid.map(u => `${u.name} (còn ${fmt(u.amount - u.paid)})`).join('; ') : 'Không có'}.
+SĨ SỐ LỚP: ${byClassSize.map(c => `${c.name}: ${c.so_hv} HV`).join('; ')}.
+GV & SỐ LỚP: ${byTeacher.map(t => `${t.name}: ${t.so_lop} lớp`).join('; ')}.
+DOANH THU: ${revenue.map(r => `${r.thang}: ${fmt(r.thu)}`).join(' | ')}.
+VẮNG NHIỀU NHẤT: ${topAbsent.length ? topAbsent.map(a => `${a.name}: ${a.so_vang} buổi`).join('; ') : 'Chưa có dữ liệu'}.`;
 
     const answer = await callAI(
-      `Bạn là trợ lý AI của trung tâm âm nhạc Ascent Music Center (Việt Nam).
-Trả lời NGẮN GỌN, rõ ràng, bằng tiếng Việt, dựa CHÍNH XÁC trên dữ liệu dưới đây.
-Nếu dữ liệu không có thông tin cần thiết, nói thẳng là chưa có dữ liệu.
+      `Bạn là trợ lý AI quản lý của trung tâm âm nhạc Ascent Music Center.
+Vai trò: hỗ trợ ban giám đốc/admin quản lý toàn bộ trung tâm — học viên, giáo viên, doanh thu, lớp học.
+Trả lời NGẮN GỌN, rõ ràng, bằng tiếng Việt, dựa CHÍNH XÁC trên dữ liệu.
+Nếu không có dữ liệu, nói thẳng là chưa có.
 
 ${context}`,
       question
     );
 
     res.json({ success: true, answer });
-  } catch (err) { handleErr(res, err, 'assistant'); }
+  } catch (err) { handleErr(res, err, 'assistant-admin'); }
 });
 
 // ════════════════════════════════════════════════
-// ② Chatbot cho học viên / phụ huynh (dữ liệu cá nhân)
+// ② AI GIÁO VIÊN — chỉ thấy dữ liệu lớp mình dạy
+// ════════════════════════════════════════════════
+router.post('/teacher-chat', auth, role('teacher'), async (req, res) => {
+  try {
+    const { question } = req.body;
+    if (!question) return res.status(400).json({ message: 'Thiếu câu hỏi!' });
+    const userId = req.user.id;
+
+    // Lấy teacher_id từ user_id
+    const [[teacher]] = await db.query(
+      'SELECT id, name, instrument FROM teachers WHERE user_id = ? LIMIT 1',
+      [userId]
+    );
+    if (!teacher) return res.status(404).json({ message: 'Không tìm thấy giáo viên!' });
+
+    const [classes, schedules, students, attendance, unpaidStudents] = await Promise.all([
+      // Lớp đang dạy
+      db.query(`
+        SELECT c.name, c.type, c.status,
+          COUNT(cs.student_id) AS so_hv
+        FROM classes c
+        LEFT JOIN class_students cs ON c.id = cs.class_id
+        WHERE c.teacher_id = ? AND c.status = 'Đang học'
+        GROUP BY c.id, c.name, c.type, c.status
+        ORDER BY c.name
+      `, [teacher.id]),
+
+      // Lịch dạy
+      db.query(`
+        SELECT c.name AS class_name, sc.day_of_week, sc.time_start, sc.time_end
+        FROM schedules sc
+        JOIN classes c ON sc.class_id = c.id
+        WHERE sc.teacher_id = ? AND sc.status = 'active'
+        ORDER BY sc.day_of_week, sc.time_start
+      `, [teacher.id]),
+
+      // Học viên của mình
+      db.query(`
+        SELECT DISTINCT s.name, s.total_sessions,
+          c.name AS class_name,
+          COUNT(CASE WHEN a.status='present' THEN 1 END) AS co_mat,
+          COUNT(CASE WHEN a.status='absent'  THEN 1 END) AS vang
+        FROM class_students cs
+        JOIN classes c  ON cs.class_id  = c.id
+        JOIN students s ON cs.student_id = s.id
+        LEFT JOIN attendance a ON a.student_id = s.id AND a.class_id = c.id
+        WHERE c.teacher_id = ? AND c.status = 'Đang học'
+        GROUP BY s.id, s.name, s.total_sessions, c.name
+        ORDER BY s.name
+      `, [teacher.id]),
+
+      // Điểm danh tháng này
+      db.query(`
+        SELECT s.name, a.date, a.status
+        FROM attendance a
+        JOIN students s ON a.student_id = s.id
+        JOIN classes  c ON a.class_id   = c.id
+        WHERE c.teacher_id = ?
+          AND MONTH(a.date) = MONTH(CURDATE())
+          AND YEAR(a.date)  = YEAR(CURDATE())
+        ORDER BY a.date DESC LIMIT 20
+      `, [teacher.id]),
+
+      // HV chưa đóng học phí
+      db.query(`
+        SELECT s.name, t.amount, t.paid
+        FROM tuition t
+        JOIN students s ON t.student_id = s.id
+        JOIN classes  c ON t.class_id   = c.id
+        WHERE c.teacher_id = ? AND t.status != 'Đã thanh toán'
+      `, [teacher.id]),
+    ]);
+
+    const DAY = { 1:'CN', 2:'T2', 3:'T3', 4:'T4', 5:'T5', 6:'T6', 7:'T7' };
+    const schedText   = schedules[0].length
+      ? schedules[0].map(s => `${DAY[s.day_of_week]} ${String(s.time_start).slice(0,5)}-${String(s.time_end).slice(0,5)} (${s.class_name})`).join('; ')
+      : 'Chưa có lịch dạy';
+    const classText   = classes[0].length
+      ? classes[0].map(c => `${c.name} (${c.type==='1v1'?'1-1':'Nhóm'}, ${c.so_hv} HV)`).join('; ')
+      : 'Chưa có lớp';
+    const stuText     = students[0].length
+      ? students[0].map(s => `${s.name} [${s.class_name}]: có mặt ${s.co_mat}, vắng ${s.vang}/${s.total_sessions} buổi`).join('; ')
+      : 'Chưa có học viên';
+    const attText     = attendance[0].length
+      ? attendance[0].map(a => `${a.name} ${a.date?.toISOString?.()?.slice(0,10)||a.date}: ${a.status}`).join('; ')
+      : 'Chưa có điểm danh tháng này';
+    const unpaidText  = unpaidStudents[0].length
+      ? unpaidStudents[0].map(u => `${u.name} (còn ${fmt(u.amount-u.paid)})`).join('; ')
+      : 'Tất cả đã đóng học phí';
+
+    const context = `THÔNG TIN GIÁO VIÊN:
+Tên: ${teacher.name} | Chuyên môn: ${teacher.instrument}
+LỚP ĐANG DẠY: ${classText}
+LỊCH DẠY: ${schedText}
+HỌC VIÊN & TIẾN ĐỘ: ${stuText}
+ĐIỂM DANH THÁNG NÀY: ${attText}
+HỌC PHÍ CHƯA ĐÓNG: ${unpaidText}`;
+
+    const answer = await callAI(
+      `Bạn là trợ lý AI hỗ trợ giáo viên tại Ascent Music Center.
+Vai trò: giúp giáo viên quản lý lớp học, theo dõi học viên, xem lịch dạy, nhận xét tiến độ học viên.
+Chỉ cung cấp thông tin về lớp/HV của giáo viên này, không đề cập dữ liệu của GV khác.
+Trả lời thân thiện, chuyên nghiệp bằng tiếng Việt.
+
+${context}`,
+      question
+    );
+
+    res.json({ success: true, answer });
+  } catch (err) { handleErr(res, err, 'teacher-chat'); }
+});
+
+// ════════════════════════════════════════════════
+// ③ AI HỌC VIÊN — thông tin cá nhân của HV đó
 // ════════════════════════════════════════════════
 router.post('/parent-chat', auth, async (req, res) => {
   try {
@@ -165,57 +238,76 @@ router.post('/parent-chat', auth, async (req, res) => {
     if (!question) return res.status(400).json({ message: 'Thiếu câu hỏi!' });
     const userId = req.user.id;
 
-    // user.id (student-xxx) → students.id (hv-xxx)
-    const [[stu]] = await db.query('SELECT id, name FROM students WHERE user_id = ? LIMIT 1', [userId]);
+    const [[stu]] = await db.query(
+      'SELECT id, name, instrument, level, total_sessions FROM students WHERE user_id = ? LIMIT 1',
+      [userId]
+    );
     const studentId = stu?.id;
 
-    let tuitionText = 'Chưa có dữ liệu học phí';
+    let tuitionText  = 'Chưa có dữ liệu học phí';
     let scheduleText = 'Chưa có lịch học';
-    let attendText = 'Chưa có dữ liệu điểm danh';
+    let attendText   = 'Chưa có dữ liệu điểm danh';
+    let progressText = 'Chưa có dữ liệu tiến độ';
 
     if (studentId) {
-      const [tuition] = await db.query(
-        `SELECT amount, paid, status, month FROM tuition WHERE student_id = ? ORDER BY created_at DESC LIMIT 5`,
-        [studentId]
-      );
-      tuitionText = tuition.length
-        ? tuition.map(t => `${t.month || ''} ${fmt(t.amount)} - ${t.status} (đã trả ${fmt(t.paid)})`).join('; ')
-        : tuitionText;
+      const [tuition, schedules, [attRow], [progress]] = await Promise.all([
+        db.query(
+          `SELECT amount, paid, status, month FROM tuition WHERE student_id = ? ORDER BY created_at DESC LIMIT 5`,
+          [studentId]
+        ),
+        db.query(`
+          SELECT c.name AS class_name, sc.day_of_week, sc.time_start, sc.time_end,
+            t.name AS teacher_name
+          FROM class_students cs
+          JOIN classes   c  ON cs.class_id  = c.id
+          JOIN schedules sc ON sc.class_id  = c.id
+          LEFT JOIN teachers t ON sc.teacher_id = t.id
+          WHERE cs.student_id = ? AND sc.status = 'active'
+          ORDER BY sc.day_of_week, sc.time_start
+        `, [studentId]),
+        db.query(`
+          SELECT SUM(status='present') AS co_mat,
+                 SUM(status='absent')  AS vang,
+                 COUNT(*) AS tong
+          FROM attendance WHERE student_id = ?
+        `, [studentId]),
+        db.query(`
+          SELECT s.total_sessions,
+            COUNT(CASE WHEN a.status IN ('present','late') THEN 1 END) AS da_hoc
+          FROM students s
+          LEFT JOIN attendance a ON a.student_id = s.id
+          WHERE s.id = ?
+          GROUP BY s.id, s.total_sessions
+        `, [studentId]),
+      ]);
 
-      const [schedules] = await db.query(`
-        SELECT c.name AS class_name, sc.day_of_week, sc.time_start, sc.time_end, t.name AS teacher_name
-        FROM class_students cs
-        JOIN classes c ON cs.class_id = c.id
-        JOIN schedules sc ON sc.class_id = c.id
-        LEFT JOIN teachers t ON sc.teacher_id = t.id
-        WHERE cs.student_id = ? AND sc.status = 'active'
-        ORDER BY sc.day_of_week, sc.time_start
-      `, [studentId]);
       const DAY = { 1:'CN', 2:'T2', 3:'T3', 4:'T4', 5:'T5', 6:'T6', 7:'T7' };
-      scheduleText = schedules.length
-        ? schedules.map(s => `${DAY[s.day_of_week]} ${String(s.time_start).slice(0,5)}-${String(s.time_end).slice(0,5)} ${s.class_name} (GV: ${s.teacher_name || '?'})`).join('; ')
+      tuitionText  = tuition[0].length
+        ? tuition[0].map(t => `${t.month||''} ${fmt(t.amount)} - ${t.status} (đã trả ${fmt(t.paid)})`).join('; ')
+        : tuitionText;
+      scheduleText = schedules[0].length
+        ? schedules[0].map(s => `${DAY[s.day_of_week]} ${String(s.time_start).slice(0,5)}-${String(s.time_end).slice(0,5)} ${s.class_name} (GV: ${s.teacher_name||'?'})`).join('; ')
         : scheduleText;
-
-      const [[att]] = await db.query(`
-        SELECT
-          SUM(status='present') AS co_mat,
-          SUM(status='absent')  AS vang,
-          COUNT(*) AS tong
-        FROM attendance WHERE student_id = ?
-      `, [studentId]);
-      if (att?.tong > 0) {
-        attendText = `Có mặt ${att.co_mat}/${att.tong} buổi, vắng ${att.vang} buổi`;
+      if (attRow[0]?.tong > 0) {
+        attendText = `Có mặt ${attRow[0].co_mat}/${attRow[0].tong} buổi, vắng ${attRow[0].vang} buổi`;
+      }
+      if (progress[0]) {
+        const p = progress[0];
+        const con_lai = (p.total_sessions||0) - (p.da_hoc||0);
+        progressText = `Đã học ${p.da_hoc}/${p.total_sessions||'?'} buổi, còn ${con_lai > 0 ? con_lai : 0} buổi`;
       }
     }
 
     const answer = await callAI(
-      `Bạn là trợ lý AI của trung tâm âm nhạc Ascent Music Center, hỗ trợ học viên/phụ huynh.
-Trả lời thân thiện, ngắn gọn bằng tiếng Việt, dựa trên thông tin cá nhân dưới đây.
+      `Bạn là trợ lý AI thân thiện của Ascent Music Center, hỗ trợ học viên và phụ huynh.
+Vai trò: giúp xem lịch học, tiến độ khóa học, học phí, điểm danh và trả lời câu hỏi về âm nhạc.
+Trả lời nhẹ nhàng, động viên, dễ hiểu bằng tiếng Việt.
 
-Học viên: ${stu?.name || 'không xác định'}
+Học viên: ${stu?.name || 'không xác định'} | Nhạc cụ: ${stu?.instrument||'?'} | Trình độ: ${stu?.level||'?'}
 Lịch học: ${scheduleText}
-Học phí: ${tuitionText}
-Điểm danh: ${attendText}`,
+Tiến độ: ${progressText}
+Điểm danh: ${attendText}
+Học phí: ${tuitionText}`,
       question
     );
 
@@ -224,34 +316,31 @@ Học phí: ${tuitionText}
 });
 
 // ════════════════════════════════════════════════
-// ③ Tạo nhận xét học viên tự động
+// ④ Tạo nhận xét học viên (admin + GV)
 // ════════════════════════════════════════════════
 router.post('/feedback', auth, role('admin', 'teacher'), async (req, res) => {
   try {
     const { studentName, subject, score, notes, period } = req.body;
-
     const feedback = await callAI(
       `Bạn là giáo viên âm nhạc chuyên nghiệp tại Ascent Music Center.
 Viết nhận xét đánh giá học viên để gửi phụ huynh: tích cực, động viên, 3-4 câu.
 Đề cập điểm mạnh và điểm cần cải thiện. Kết thúc bằng lời khích lệ. Chỉ trả về nội dung nhận xét.`,
-      `Học viên: ${studentName} | Môn: ${subject} | Điểm: ${score || 'N/A'} | Ghi chú GV: ${notes || 'không có'} | Kỳ: ${period || 'này'}`
+      `Học viên: ${studentName} | Môn: ${subject} | Điểm: ${score||'N/A'} | Ghi chú: ${notes||'không có'} | Kỳ: ${period||'này'}`
     );
-
     res.json({ success: true, feedback });
   } catch (err) { handleErr(res, err, 'feedback'); }
 });
 
 // ════════════════════════════════════════════════
-// ④ Phân tích báo cáo kinh doanh
+// ⑤ Phân tích báo cáo (admin)
 // ════════════════════════════════════════════════
 router.post('/report', auth, role('admin'), async (req, res) => {
   try {
-    const [[students]]  = await db.query("SELECT COUNT(*) AS n FROM students WHERE status='active'");
-    const [[classes]]   = await db.query("SELECT COUNT(*) AS n FROM classes WHERE status='Đang học'");
-    const [revenue]     = await db.query(`
+    const [[students]] = await db.query("SELECT COUNT(*) AS n FROM students WHERE status='active'");
+    const [[classes]]  = await db.query("SELECT COUNT(*) AS n FROM classes WHERE status='Đang học'");
+    const [revenue]    = await db.query(`
       SELECT DATE_FORMAT(created_at, '%m/%Y') AS thang,
-             SUM(paid) AS da_thu,
-             SUM(amount - paid) AS con_no
+             SUM(paid) AS da_thu, SUM(amount - paid) AS con_no
       FROM tuition
       WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
       GROUP BY thang ORDER BY thang
@@ -260,37 +349,31 @@ router.post('/report', auth, role('admin'), async (req, res) => {
       SELECT ROUND(SUM(status='present') * 100.0 / NULLIF(COUNT(*),0), 1) AS ti_le
       FROM attendance
     `);
-
     const revenueText = revenue.map(r => `${r.thang}: thu ${fmt(r.da_thu)}, nợ ${fmt(r.con_no)}`).join(' | ');
-
     const analysis = await callAI(
-      `Bạn là chuyên gia phân tích kinh doanh cho trung tâm âm nhạc Ascent Music Center.
-Phân tích dữ liệu dưới đây bằng tiếng Việt: nêu xu hướng, điểm tốt, rủi ro và 2-3 đề xuất cụ thể.`,
-      `Số HV đang học: ${students.n} | Số lớp: ${classes.n} | Tỉ lệ điểm danh: ${attRate?.ti_le || 0}%
-Doanh thu 6 tháng: ${revenueText}`,
+      `Bạn là chuyên gia phân tích kinh doanh cho Ascent Music Center.
+Phân tích dữ liệu bằng tiếng Việt: nêu xu hướng, điểm tốt, rủi ro và 2-3 đề xuất cụ thể.`,
+      `HV: ${students.n} | Lớp: ${classes.n} | Điểm danh: ${attRate?.ti_le||0}%\nDoanh thu: ${revenueText}`,
       1000
     );
-
     res.json({ success: true, analysis });
   } catch (err) { handleErr(res, err, 'report'); }
 });
 
 // ════════════════════════════════════════════════
-// ⑤ Soạn thông báo
+// ⑥ Soạn thông báo
 // ════════════════════════════════════════════════
 router.post('/compose', auth, async (req, res) => {
   try {
     const { input, tone, recipient } = req.body;
-    const toneMap      = { lich_su: 'lịch sự trang trọng', than_thien: 'thân thiện gần gũi', ngan_gon: 'ngắn gọn súc tích' };
-    const recipientMap = { phu_huynh: 'phụ huynh', hoc_vien: 'học viên', giao_vien: 'giáo viên', tat_ca: 'tất cả' };
-
+    const toneMap      = { lich_su:'lịch sự trang trọng', than_thien:'thân thiện gần gũi', ngan_gon:'ngắn gọn súc tích' };
+    const recipientMap = { phu_huynh:'phụ huynh', hoc_vien:'học viên', giao_vien:'giáo viên', tat_ca:'tất cả' };
     const text = await callAI(
-      `Bạn là trợ lý soạn thông báo cho trung tâm âm nhạc Ascent Music Center.
-Soạn thông báo giọng ${toneMap[tone] || 'lịch sự'} gửi đến ${recipientMap[recipient] || 'phụ huynh'}.
-Chỉ trả về nội dung thông báo, không giải thích thêm.`,
+      `Bạn là trợ lý soạn thông báo cho Ascent Music Center.
+Soạn thông báo giọng ${toneMap[tone]||'lịch sự'} gửi đến ${recipientMap[recipient]||'phụ huynh'}.
+Chỉ trả về nội dung thông báo.`,
       input
     );
-
     res.json({ success: true, text });
   } catch (err) { handleErr(res, err, 'compose'); }
 });
