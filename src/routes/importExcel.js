@@ -256,6 +256,7 @@ const TUITION_NAME_ALIAS = {
   'Chị Hương Giang': 'Chị Hương Giang',
   'Nguyễn Khánh My': 'Nguyễn Khánh My',
   'Nguyễn Hồng Bảo An (Gao)': 'Nguyễn Hồng Bảo An',
+  'Nguyễn Hồng Bảo An (Gạo)': 'Nguyễn Hồng Bảo An',
   // Fix thêm
   'Nguyễn Ngọc  Linh An': 'Linh An',
   'Nguyễn Hồng Bảo An': 'Nguyễn Hồng Bảo An',
