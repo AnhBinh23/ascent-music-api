@@ -143,8 +143,68 @@ router.post('/attendance', auth, role('admin'), upload.single('file'), async (re
         const instrument = (r[4] || '').toString().trim();
         const studentId = studentByName.get(name);
         if (!studentId) { notFound.push(rawName); continue; }
-        const cls = classesByStudent.get(studentId);
-        if (!cls || !cls.length) { notFound.push(`${rawName} (chưa gán lớp)`); continue; }
+        let cls = classesByStudent.get(studentId);
+
+        // HV chưa có lớp → tự tạo lớp + gán vào
+        if (!cls || !cls.length) {
+          const rawHinhThuc = String(r[6] || '').trim().toLowerCase();
+          const isGroup = rawHinhThuc === 'nhóm' || rawHinhThuc === 'nhom';
+          const instNorm = instrument || 'Piano';
+          const goiHoc = String(r[7] || '').trim();
+          const totalSess = parseGoi(goiHoc) || 16;
+
+          const TEACHER_ALIAS2 = {
+            'dương':'đinh văn dương','tiến':'lê hữu tiến',
+            'h.tiến':'lê hữu tiến','hữu tiến':'lê hữu tiến',
+            'hằng':'hằng','cô hoa':'hoa','hoa':'hoa',
+          };
+          const rawGV = String(r[5] || '').trim().toLowerCase();
+          const [allTeachers2] = await db.query('SELECT id, name FROM teachers');
+          const tAlias = TEACHER_ALIAS2[rawGV] || rawGV;
+          const foundT = allTeachers2.find(t => t.name.toLowerCase().includes(tAlias) || tAlias.includes(t.name.toLowerCase().split(' ').pop()));
+          const teacherId2 = foundT?.id || null;
+
+          let newClassId;
+          if (isGroup && teacherId2) {
+            const [existGrp] = await db.query(
+              `SELECT id FROM classes WHERE teacher_id=? AND instrument=? AND type='group' AND status='Đang học' LIMIT 1`,
+              [teacherId2, instNorm]
+            );
+            if (existGrp.length) { newClassId = existGrp[0].id; }
+            else {
+              const grpName = `${instNorm} Nhóm - ${foundT?.name||''}`;
+              const [r2] = await db.query(
+                `INSERT INTO classes (name,instrument,type,teacher_id,status) VALUES (?,?,'group',?,'Đang học')`,
+                [grpName, instNorm, teacherId2]
+              );
+              newClassId = r2.insertId;
+            }
+          } else {
+            const className = `${instNorm} 1-1 ${name}`;
+            const [existCls] = await db.query('SELECT id FROM classes WHERE name=? LIMIT 1', [className]);
+            if (existCls.length) { newClassId = existCls[0].id; }
+            else {
+              const [r2] = await db.query(
+                `INSERT INTO classes (name,instrument,type,teacher_id,status) VALUES (?,?,'1v1',?,'Đang học')`,
+                [className, instNorm, teacherId2]
+              );
+              newClassId = r2.insertId;
+            }
+          }
+
+          // Gán HV vào lớp
+          const [existCS2] = await db.query(
+            'SELECT id FROM class_students WHERE class_id=? AND student_id=?', [newClassId, studentId]
+          );
+          if (!existCS2.length) {
+            await db.query('INSERT INTO class_students (class_id,student_id,course_number) VALUES (?,?,1)', [newClassId, studentId]);
+          }
+          if (totalSess) await db.query('UPDATE students SET total_sessions=? WHERE id=?', [totalSess, studentId]);
+
+          cls = [{ class_id: newClassId, instrument: instNorm }];
+          classesByStudent.set(studentId, cls);
+        }
+
         let classId;
         if (cls.length === 1) classId = cls[0].class_id;
         else {
@@ -391,9 +451,9 @@ router.post('/create-students', auth, role('admin'), upload.single('file'), asyn
               // Tạo lớp nhóm mới
               const className = `${instrument} Nhóm - ${teachers.find(t=>t.id===teacherId)?.name||''}`;
               const [res2] = await db.query(
-                `INSERT INTO classes (name, instrument, type, teacher_id, status, total_sessions)
-                 VALUES (?, ?, 'group', ?, 'Đang học', ?)`,
-                [className, instrument, teacherId, totalSessions]
+                `INSERT INTO classes (name, instrument, type, teacher_id, status)
+                 VALUES (?, ?, 'group', ?, 'Đang học')`,
+                [className, instrument, teacherId]
               );
               classId = res2.insertId;
             }
@@ -407,9 +467,9 @@ router.post('/create-students', auth, role('admin'), upload.single('file'), asyn
             classId = classByName.get(classNameLow);
           } else {
             const [res2] = await db.query(
-              `INSERT INTO classes (name, instrument, type, teacher_id, status, total_sessions)
-               VALUES (?, ?, '1v1', ?, 'Đang học', ?)`,
-              [className, instrument, teacherId, totalSessions]
+              `INSERT INTO classes (name, instrument, type, teacher_id, status)
+               VALUES (?, ?, '1v1', ?, 'Đang học')`,
+              [className, instrument, teacherId]
             );
             classId = res2.insertId;
             classByName.set(classNameLow, classId);
