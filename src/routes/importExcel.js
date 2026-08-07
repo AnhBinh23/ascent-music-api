@@ -20,19 +20,31 @@ const NAME_ALIAS = {
 function toDate(v) {
   if (!v || v === 'NaT') return null;
   if (v instanceof Date) {
-    const y = v.getFullYear(), m = String(v.getMonth()+1).padStart(2,'0'), d = String(v.getDate()).padStart(2,'0');
+    if (isNaN(v.getTime())) return null;
+    const y = v.getFullYear();
+    if (y < 2000 || y > 2100) return null;
+    const m = String(v.getMonth()+1).padStart(2,'0');
+    const d = String(v.getDate()).padStart(2,'0');
     return `${y}-${m}-${d}`;
   }
   if (typeof v === 'number' && v > 1) {
-    return new Date(Date.UTC(1899,11,30) + Math.round(v)*86400000).toISOString().split('T')[0];
+    const date = new Date(Date.UTC(1899,11,30) + Math.round(v)*86400000);
+    const y = date.getUTCFullYear();
+    if (y < 2000 || y > 2100) return null;
+    const m = String(date.getUTCMonth()+1).padStart(2,'0');
+    const d = String(date.getUTCDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
   }
   if (typeof v === 'string') {
-    // dd/mm or dd/mm/yyyy
     const parts = v.trim().split('/');
     if (parts.length >= 2) {
       const dd = parts[0].padStart(2,'0');
       const mm = parts[1].padStart(2,'0');
       const yy = parts[2] || new Date().getFullYear();
+      // Kiểm tra hợp lệ
+      if (isNaN(Number(dd)) || isNaN(Number(mm))) return null;
+      if (Number(dd) < 1 || Number(dd) > 31) return null;
+      if (Number(mm) < 1 || Number(mm) > 12) return null;
       return `${yy}-${mm}-${dd}`;
     }
   }
