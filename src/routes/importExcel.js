@@ -242,6 +242,22 @@ router.post('/attendance', auth, role('admin'), upload.single('file'), async (re
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// Map tên trong sheet Học Phí → tên trong DB
+const TUITION_NAME_ALIAS = {
+  'Chị Huệ (Tầng 9)': 'Chị Huệ T9',
+  'Chị Huệ T9': 'Chị Huệ T9',
+  'An Khánh': 'Vũ An Khánh',
+  'Gia Nhi': 'Tạ Gia Nhi',
+  'Minh Châu': 'Tạ Minh Châu',
+  'Hoàng Minh Thư B10A': 'Hoàng Minh Thư',
+  'Cảnh Kỳ': 'Nguyễn Cảnh Kỳ',
+  'Nguyễn Ngọc Linh An': 'Linh An',
+  'NNguyễn Lê Phương Mai': 'Nguyễn Lê Phương Mai',
+  'Chị Hương Giang': 'Chị Hương Giang',
+  'Nguyễn Khánh My': 'Nguyễn Khánh My',
+  'Nguyễn Hồng Bảo An (Gao)': 'Nguyễn Hồng Bảo An',
+};
+
 // ─── PREVIEW học phí ─────────────────────────────────────────────────────────
 router.post('/tuition-preview', auth, role('admin'), upload.single('file'), async (req, res) => {
   try {
@@ -261,11 +277,13 @@ router.post('/tuition-preview', auth, role('admin'), upload.single('file'), asyn
       if (!r || !r[1]) continue;
       const rawName = String(r[1]).trim();
       if (!rawName || rawName === 'NaN') continue;
-
-      const studentId = studentByName.get(rawName);
+      const mappedName = TUITION_NAME_ALIAS[rawName] || rawName;
+      const studentId = studentByName.get(mappedName);
       const amount = Number(r[6]) || 0;
       const paid   = Number(r[7]) || 0;
-      const status = String(r[9] || '').trim();
+      // Status thanh toán tính từ số tiền, không lấy từ Excel
+      const payStatus = paid >= amount ? 'Đã thanh toán' : paid > 0 ? 'Thanh toán 1 phần' : 'Chưa thanh toán';
+      const hocStatus = String(r[9] || '').trim(); // Tình trạng học (Đang học/Tạm Nghỉ...)
 
       if (!amount) continue;
 
@@ -278,7 +296,8 @@ router.post('/tuition-preview', auth, role('admin'), upload.single('file'), asyn
         amount,
         paid,
         debt: amount - paid,
-        status,
+        status: payStatus,
+        hocStatus,
       });
       if (!studentId) notFound.push(rawName);
     }
@@ -311,8 +330,8 @@ router.post('/tuition', auth, role('admin'), upload.single('file'), async (req, 
       if (!r || !r[1]) continue;
       const rawName = String(r[1]).trim();
       if (!rawName || rawName === 'NaN') continue;
-
-      const studentId = studentByName.get(rawName);
+      const mappedName = TUITION_NAME_ALIAS[rawName] || rawName;
+      const studentId = studentByName.get(mappedName);
       if (!studentId) { notFound.push(rawName); continue; }
 
       const amount  = Number(r[6]) || 0;
