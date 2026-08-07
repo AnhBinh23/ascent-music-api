@@ -268,3 +268,80 @@ router.post('/tuition', auth, role('admin'), upload.single('file'), async (req, 
 });
 
 module.exports = router;
+
+// ─── TẠO HV MỚI từ Excel (những HV chưa có trong DB) ────────────────────────
+router.post('/create-students', auth, role('admin'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Chưa chọn file!' });
+    const wb = XLSX.read(req.file.buffer, { cellDates: true });
+
+    const [students] = await db.query('SELECT id, TRIM(name) AS name FROM students');
+    const studentByName = new Map(students.map(s => [s.name, s.id]));
+
+    // Lấy ID lớn nhất hiện tại để tạo ID mới
+    const [maxId] = await db.query("SELECT MAX(CAST(SUBSTRING(id, 4) AS UNSIGNED)) AS maxn FROM students WHERE id LIKE 'hv-%'");
+    let nextNum = (maxId[0].maxn || 0) + 1;
+
+    // Map tên GV phụ trách → teacher_id
+    const [teachers] = await db.query('SELECT id, name FROM teachers');
+    const teacherMap = new Map(teachers.map(t => [t.name.toLowerCase().trim(), t.id]));
+
+    const TEACHER_ALIAS = {
+      'dương': 'đinh văn dương',
+      'tiến': 'lê hữu tiến',
+      'h.tiến': 'lê hữu tiến',
+      'hữu tiến': 'lê hữu tiến',
+      'hằng': 'hằng',
+    };
+
+    const INSTRUMENT_MAP = {
+      'piano': 'Piano', 'guitar': 'Guitar', 'violin': 'Violin',
+      'tn': 'Thanh nhạc', 'thanh nhạc': 'Thanh nhạc',
+      'piano (đệm)': 'Piano',
+    };
+
+    const created = [], skipped = [];
+
+    for (const [sheetName] of Object.entries(SHEET_COURSE)) {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) continue;
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[1]) continue;
+        const rawName = String(r[1]).trim();
+        if (!rawName) continue;
+        const name = NAME_ALIAS[rawName] || rawName;
+
+        // Đã có rồi → bỏ qua
+        if (studentByName.has(name)) continue;
+
+        const dobRaw   = r[3];
+        const dob      = dobRaw && !isNaN(Number(dobRaw)) ? `${Math.round(Number(dobRaw))}-01-01` : null;
+        const rawInstr = String(r[4] || '').trim().toLowerCase();
+        const instrument = INSTRUMENT_MAP[rawInstr] || 'Piano';
+        const rawTeacher = String(r[5] || '').trim().toLowerCase();
+        const teacherAlias = TEACHER_ALIAS[rawTeacher] || rawTeacher;
+        const teacherId = teacherMap.get(teacherAlias) || null;
+        const hinhThuc = String(r[6] || '').trim().toLowerCase();
+        const level = 'Sơ cấp';
+        const phone = '0000000000'; // placeholder, điền sau
+
+        const newId = `hv-${String(nextNum).padStart(3, '0')}`;
+        nextNum++;
+
+        await db.query(
+          `INSERT INTO students (id, name, dob, instrument, level, phone, status, note)
+           VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
+          [newId, name, dob, instrument, level, phone, `Import từ Excel - GV: ${r[5] || ''}`]
+        );
+
+        studentByName.set(name, newId); // tránh tạo trùng trong cùng file
+        created.push({ id: newId, name, instrument, dob: dob?.slice(0,4) });
+      }
+    }
+
+    res.json({ success: true, created, skipped });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
