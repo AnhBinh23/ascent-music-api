@@ -256,6 +256,9 @@ const TUITION_NAME_ALIAS = {
   'Chị Hương Giang': 'Chị Hương Giang',
   'Nguyễn Khánh My': 'Nguyễn Khánh My',
   'Nguyễn Hồng Bảo An (Gao)': 'Nguyễn Hồng Bảo An',
+  // Fix thêm
+  'Nguyễn Ngọc  Linh An': 'Linh An',
+  'Nguyễn Hồng Bảo An': 'Nguyễn Hồng Bảo An',
 };
 
 // ─── PREVIEW học phí ─────────────────────────────────────────────────────────
@@ -349,18 +352,18 @@ router.post('/tuition', auth, role('admin'), upload.single('file'), async (req, 
         [studentId, course]
       );
 
+      // Tính lại status đúng từ số tiền
+      const payStatus2 = amount > 0 && paid >= amount ? 'Đã thanh toán' : paid > 0 ? 'Thanh toán 1 phần' : 'Chưa thanh toán';
       if (existing.length) {
-        // Cập nhật
         await db.query(
           `UPDATE tuition SET amount=?, paid=?, status=?, sessions=? WHERE student_id=? AND course_number=?`,
-          [amount, paid, status, sessions, studentId, course]
+          [amount, paid, payStatus2, sessions, studentId, course]
         );
       } else {
-        // Thêm mới
         await db.query(
           `INSERT INTO tuition (student_id, class_id, amount, paid, status, sessions, course_number, note)
            VALUES (?,?,?,?,?,?,?,?)`,
-          [studentId, classId, amount, paid, status, sessions, course, 'Import từ Excel']
+          [studentId, classId, amount, paid, payStatus2, sessions, course, 'Import từ Excel']
         );
       }
       imported++;
