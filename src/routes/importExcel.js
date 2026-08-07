@@ -14,6 +14,30 @@ const SHEET_COURSE = { 'Điểm Danh Khóa 1': 1, 'Điểm Danh Khóa 2': 2, 'Đ
 const GOI_COL = 7, FIRST_SESSION_COL = 8;
 const NAME_ALIAS = { 'Bảo An(Lan Anh)': 'Bảo An', 'Hoàng Minh Thư (B10A)': 'Hoàng Minh Thư' };
 
+// Alias riêng cho sheet chấm công GV (có biệt danh trong ngoặc)
+const CHECKIN_NAME_ALIAS = {
+  'Vũ Bình An (Thỏ)':      'Vũ Bình An',
+  'Vũ Minh An (Tê Tê)':    'Vũ Minh An',
+  'Lê Ngọc Diệp (Subi)':   'Lê Ngọc Diệp',
+  'Gia Hân(Mây)':           'Tạ Gia Hân',
+  'Ngọc Trâm (Bống)':      'Ngọc Trâm',
+  'Vũ An Khánh( Mochi )':  'Vũ An Khánh',
+  'Vũ Tường Ngân ( Cam)':  'Vũ Tường Ngân',
+  'Tạ Minh Châu (Táo)':    'Tạ Minh Châu',
+  'Nhã Phương(Mỡ)':        'Nhã Phương',
+  'Linh Đan( Thỏ)':        'Nguyễn Ngọc Linh Đan',
+  'Linh Đan':              'Nguyễn Ngọc Linh Đan',
+  'Bảo An(Lan Anh)':       'Bảo An',
+  'Minh Thư':              'Nguyễn Trần Minh Thư',
+  'An Nhiên':              'Hoàng An Nhiên',
+  'Hiền Minh':             'Hiền Minh',
+  'Thanh Tú':              'Thanh Tú',
+  'Phương Nhi':            'Phương Nhi',
+  'Nguyễn Cảnh Kỳ':       'Nguyễn Cảnh Kỳ',
+  'Phùng Ngọc Anh':       'Phùng Ngọc Anh',
+  'Bảo Anh':              'Bảo Anh',
+};
+
 function toDate(v) {
   if (!v || v === 'NaT') return null;
   if (v instanceof Date) {
@@ -269,7 +293,7 @@ router.post('/tuition', auth, role('admin'), upload.single('file'), async (req, 
 
 module.exports = router;
 
-// ─── TẠO HV MỚI từ Excel (những HV chưa có trong DB) ────────────────────────
+// ─── TẠO HV MỚI + LỚP HỌC từ Excel ──────────────────────────────────────────
 router.post('/create-students', auth, role('admin'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'Chưa chọn file!' });
@@ -278,29 +302,34 @@ router.post('/create-students', auth, role('admin'), upload.single('file'), asyn
     const [students] = await db.query('SELECT id, TRIM(name) AS name FROM students');
     const studentByName = new Map(students.map(s => [s.name, s.id]));
 
-    // Lấy ID lớn nhất hiện tại để tạo ID mới
-    const [maxId] = await db.query("SELECT MAX(CAST(SUBSTRING(id, 4) AS UNSIGNED)) AS maxn FROM students WHERE id LIKE 'hv-%'");
-    let nextNum = (maxId[0].maxn || 0) + 1;
+    // ID HV mới
+    const [maxHv] = await db.query("SELECT MAX(CAST(SUBSTRING(id, 4) AS UNSIGNED)) AS maxn FROM students WHERE id LIKE 'hv-%'");
+    let nextHvNum = (maxHv[0].maxn || 0) + 1;
 
-    // Map tên GV phụ trách → teacher_id
+    // Map tên GV
     const [teachers] = await db.query('SELECT id, name FROM teachers');
     const teacherMap = new Map(teachers.map(t => [t.name.toLowerCase().trim(), t.id]));
-
     const TEACHER_ALIAS = {
-      'dương': 'đinh văn dương',
-      'tiến': 'lê hữu tiến',
-      'h.tiến': 'lê hữu tiến',
-      'hữu tiến': 'lê hữu tiến',
-      'hằng': 'hằng',
+      'dương': 'đinh văn dương', 'tiến': 'lê hữu tiến',
+      'h.tiến': 'lê hữu tiến', 'hữu tiến': 'lê hữu tiến',
+      'hằng': 'hằng', 'cô hoa': 'hoa', 'hoa': 'hoa',
     };
-
     const INSTRUMENT_MAP = {
       'piano': 'Piano', 'guitar': 'Guitar', 'violin': 'Violin',
       'tn': 'Thanh nhạc', 'thanh nhạc': 'Thanh nhạc',
       'piano (đệm)': 'Piano',
     };
 
-    const created = [], skipped = [];
+    // Lớp hiện có
+    const [existClasses] = await db.query('SELECT id, name FROM classes');
+    const classByName = new Map(existClasses.map(c => [c.name.toLowerCase().trim(), c.id]));
+    // Class_students hiện có
+    const [existCS] = await db.query('SELECT class_id, student_id FROM class_students');
+    const csSet = new Set(existCS.map(x => `${x.class_id}|${x.student_id}`));
+
+    const created = [];
+    // Map nhóm: key = (teacherId + instrument + type) → classId
+    const groupClassMap = new Map();
 
     for (const [sheetName] of Object.entries(SHEET_COURSE)) {
       const ws = wb.Sheets[sheetName];
@@ -314,35 +343,92 @@ router.post('/create-students', auth, role('admin'), upload.single('file'), asyn
         if (!rawName) continue;
         const name = NAME_ALIAS[rawName] || rawName;
 
-        // Đã có rồi → bỏ qua
-        if (studentByName.has(name)) continue;
-
-        const dobRaw   = r[3];
-        const dob      = dobRaw && !isNaN(Number(dobRaw)) ? `${Math.round(Number(dobRaw))}-01-01` : null;
-        const rawInstr = String(r[4] || '').trim().toLowerCase();
+        const dobRaw    = r[3];
+        const dob       = dobRaw && !isNaN(Number(dobRaw)) ? `${Math.round(Number(dobRaw))}-01-01` : null;
+        const rawInstr  = String(r[4] || '').trim().toLowerCase();
         const instrument = INSTRUMENT_MAP[rawInstr] || 'Piano';
         const rawTeacher = String(r[5] || '').trim().toLowerCase();
         const teacherAlias = TEACHER_ALIAS[rawTeacher] || rawTeacher;
         const teacherId = teacherMap.get(teacherAlias) || null;
-        const hinhThuc = String(r[6] || '').trim().toLowerCase();
-        const level = 'Sơ cấp';
-        const phone = '0000000000'; // placeholder, điền sau
+        const rawHinhThuc = String(r[6] || '').trim().toLowerCase();
+        const isGroup = rawHinhThuc === 'nhóm' || rawHinhThuc === 'nhom';
+        const classType = isGroup ? 'group' : '1v1';
+        const goiHoc = String(r[7] || '').trim();
+        const totalSessions = parseGoi(goiHoc) || 16;
 
-        const newId = `hv-${String(nextNum).padStart(3, '0')}`;
-        nextNum++;
+        // 1. Tạo HV nếu chưa có
+        let studentId = studentByName.get(name);
+        if (!studentId) {
+          const newId = `hv-${String(nextHvNum).padStart(3, '0')}`;
+          nextHvNum++;
+          await db.query(
+            `INSERT INTO students (id, name, dob, instrument, level, phone, status, total_sessions, note)
+             VALUES (?, ?, ?, ?, 'Sơ cấp', '0000000000', 'active', ?, ?)`,
+            [newId, name, dob, instrument, totalSessions, `Import từ Excel - GV: ${r[5]||''}`]
+          );
+          studentByName.set(name, newId);
+          studentId = newId;
+          created.push({ id: newId, name, instrument });
+        }
 
-        await db.query(
-          `INSERT INTO students (id, name, dob, instrument, level, phone, status, note)
-           VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
-          [newId, name, dob, instrument, level, phone, `Import từ Excel - GV: ${r[5] || ''}`]
-        );
+        // 2. Tạo/tìm lớp và gán HV
+        let classId = null;
 
-        studentByName.set(name, newId); // tránh tạo trùng trong cùng file
-        created.push({ id: newId, name, instrument, dob: dob?.slice(0,4) });
+        if (isGroup) {
+          // Lớp nhóm: dùng chung cho nhiều HV cùng GV + nhạc cụ
+          const groupKey = `${teacherId}|${instrument}|group`;
+          if (groupClassMap.has(groupKey)) {
+            classId = groupClassMap.get(groupKey);
+          } else {
+            // Tìm lớp nhóm đã có
+            const [existGroup] = await db.query(
+              `SELECT id FROM classes WHERE teacher_id=? AND instrument=? AND type='group' AND status='Đang học' LIMIT 1`,
+              [teacherId, instrument]
+            );
+            if (existGroup.length) {
+              classId = existGroup[0].id;
+            } else {
+              // Tạo lớp nhóm mới
+              const className = `${instrument} Nhóm - ${teachers.find(t=>t.id===teacherId)?.name||''}`;
+              const [res2] = await db.query(
+                `INSERT INTO classes (name, instrument, type, teacher_id, status, total_sessions)
+                 VALUES (?, ?, 'group', ?, 'Đang học', ?)`,
+                [className, instrument, teacherId, totalSessions]
+              );
+              classId = res2.insertId;
+            }
+            groupClassMap.set(groupKey, classId);
+          }
+        } else {
+          // Lớp 1-1: mỗi HV 1 lớp riêng
+          const className = `${instrument} 1-1 ${name}`;
+          const classNameLow = className.toLowerCase().trim();
+          if (classByName.has(classNameLow)) {
+            classId = classByName.get(classNameLow);
+          } else {
+            const [res2] = await db.query(
+              `INSERT INTO classes (name, instrument, type, teacher_id, status, total_sessions)
+               VALUES (?, ?, '1v1', ?, 'Đang học', ?)`,
+              [className, instrument, teacherId, totalSessions]
+            );
+            classId = res2.insertId;
+            classByName.set(classNameLow, classId);
+          }
+        }
+
+        // 3. Gán HV vào lớp nếu chưa có
+        const csKey = `${classId}|${studentId}`;
+        if (classId && !csSet.has(csKey)) {
+          await db.query(
+            'INSERT INTO class_students (class_id, student_id, course_number) VALUES (?,?,1)',
+            [classId, studentId]
+          );
+          csSet.add(csKey);
+        }
       }
     }
 
-    res.json({ success: true, created, skipped });
+    res.json({ success: true, created });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
@@ -400,7 +486,7 @@ router.post('/checkin-preview', auth, role('admin'), upload.single('file'), asyn
 
         const rawName = String(r[1] || '').trim();
         if (!rawName) continue;
-        const name = NAME_ALIAS[rawName] || rawName;
+        const name = CHECKIN_NAME_ALIAS[rawName] || NAME_ALIAS[rawName] || rawName;
         const studentId = studentByName.get(name);
 
         // Đếm ngày dạy hợp lệ
@@ -479,7 +565,7 @@ router.post('/checkin', auth, role('admin'), upload.single('file'), async (req, 
 
         const rawName = String(r[1] || '').trim();
         if (!rawName) continue;
-        const name = NAME_ALIAS[rawName] || rawName;
+        const name = CHECKIN_NAME_ALIAS[rawName] || NAME_ALIAS[rawName] || rawName;
         const studentId = studentByName.get(name);
         if (!studentId) { skipped++; continue; }
 
