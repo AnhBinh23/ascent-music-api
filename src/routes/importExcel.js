@@ -345,3 +345,167 @@ router.post('/create-students', auth, role('admin'), upload.single('file'), asyn
     res.json({ success: true, created, skipped });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
+
+// ─── PREVIEW chấm công GV ────────────────────────────────────────────────────
+router.post('/checkin-preview', auth, role('admin'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Chưa chọn file!' });
+    const wb = XLSX.read(req.file.buffer, { cellDates: true });
+
+    // Map tên GV → teacher_id
+    const [teachers] = await db.query('SELECT id, name FROM teachers');
+    const SHEET_TEACHER = {};
+    for (const t of teachers) {
+      // sheet "Dương" → GV Đinh Văn Dương, sheet "Tiến" → GV Lê Hữu Tiến
+      for (const sName of wb.SheetNames) {
+        const sLow = sName.toLowerCase().trim();
+        const tLow = t.name.toLowerCase();
+        if (tLow.includes(sLow) || sLow.includes(tLow.split(' ').pop())) {
+          SHEET_TEACHER[sName] = t.id;
+        }
+      }
+    }
+
+    // Map tên HV → student_id
+    const [students] = await db.query('SELECT id, TRIM(name) AS name FROM students');
+    const studentByName = new Map(students.map(s => [s.name, s.id]));
+
+    // Map (student_id, teacher_id) → class_id
+    const [links] = await db.query(`
+      SELECT cs.student_id, cs.class_id, c.teacher_id, c.name AS class_name, c.teacher_salary
+      FROM class_students cs JOIN classes c ON cs.class_id = c.id
+    `);
+
+    const preview = [];
+    let totalSessions = 0;
+
+    for (const [sheetName, teacherId] of Object.entries(SHEET_TEACHER)) {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) continue;
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+      let currentMonth = null;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r) continue;
+
+        // Dòng header tháng (VD: "Tháng 4", "Tháng 5")
+        const cell0 = String(r[0] || '').trim();
+        if (cell0.toLowerCase().startsWith('tháng')) {
+          currentMonth = cell0;
+          continue;
+        }
+        // Bỏ dòng STT header
+        if (cell0 === 'STT' || !cell0 || isNaN(Number(cell0))) continue;
+
+        const rawName = String(r[1] || '').trim();
+        if (!rawName) continue;
+        const name = NAME_ALIAS[rawName] || rawName;
+        const studentId = studentByName.get(name);
+
+        // Đếm ngày dạy hợp lệ
+        const dates = [];
+        for (let j = 2; j < r.length; j++) {
+          const d = toDate(r[j]);
+          if (d) dates.push(d);
+        }
+        if (!dates.length) continue;
+
+        // Tìm class_id
+        const cls = links.find(l => l.student_id === studentId && l.teacher_id === teacherId);
+
+        preview.push({
+          teacher_id: teacherId,
+          teacher_name: teachers.find(t => t.id === teacherId)?.name || sheetName,
+          student_name: rawName,
+          found_student: !!studentId,
+          found_class: !!cls,
+          class_name: cls?.class_name || '—',
+          salary_per_session: cls?.teacher_salary || 0,
+          month: currentMonth,
+          sessions: dates.length,
+          dates,
+        });
+        totalSessions += dates.length;
+      }
+    }
+
+    res.json({ success: true, preview, totalSessions, sheets: Object.keys(SHEET_TEACHER) });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// ─── IMPORT chấm công GV ─────────────────────────────────────────────────────
+router.post('/checkin', auth, role('admin'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Chưa chọn file!' });
+    const wb = XLSX.read(req.file.buffer, { cellDates: true });
+
+    const [teachers] = await db.query('SELECT id, name FROM teachers');
+    const SHEET_TEACHER = {};
+    for (const t of teachers) {
+      for (const sName of wb.SheetNames) {
+        const sLow = sName.toLowerCase().trim();
+        const tLow = t.name.toLowerCase();
+        if (tLow.includes(sLow) || sLow.includes(tLow.split(' ').pop())) {
+          SHEET_TEACHER[sName] = t.id;
+        }
+      }
+    }
+
+    const [students] = await db.query('SELECT id, TRIM(name) AS name FROM students');
+    const studentByName = new Map(students.map(s => [s.name, s.id]));
+
+    const [links] = await db.query(`
+      SELECT cs.student_id, cs.class_id, c.teacher_id, c.teacher_salary
+      FROM class_students cs JOIN classes c ON cs.class_id = c.id
+    `);
+
+    // Xóa checkin cũ từ Excel
+    const [del] = await db.query("DELETE FROM checkin WHERE note LIKE 'Import từ Excel%'");
+
+    const values = [];
+    let imported = 0, skipped = 0;
+
+    for (const [sheetName, teacherId] of Object.entries(SHEET_TEACHER)) {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) continue;
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r) continue;
+        const cell0 = String(r[0] || '').trim();
+        if (cell0.toLowerCase().startsWith('tháng') || cell0 === 'STT' || !cell0 || isNaN(Number(cell0))) continue;
+
+        const rawName = String(r[1] || '').trim();
+        if (!rawName) continue;
+        const name = NAME_ALIAS[rawName] || rawName;
+        const studentId = studentByName.get(name);
+        if (!studentId) { skipped++; continue; }
+
+        const cls = links.find(l => l.student_id === studentId && l.teacher_id === teacherId);
+        if (!cls) { skipped++; continue; }
+
+        for (let j = 2; j < r.length; j++) {
+          const date = toDate(r[j]);
+          if (!date) continue;
+          values.push([
+            randomUUID(), teacherId, cls.class_id, date,
+            cls.teacher_salary || 0,
+            'Import từ Excel',
+          ]);
+          imported++;
+        }
+      }
+    }
+
+    if (values.length) {
+      await db.query(
+        `INSERT INTO checkin (id, teacher_id, class_id, date, salary_earned, note) VALUES ?`,
+        [values]
+      );
+    }
+
+    res.json({ success: true, deleted: del.affectedRows, imported, skipped });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
