@@ -351,6 +351,79 @@ router.post('/tuition', auth, role('admin'), upload.single('file'), async (req, 
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// ─── SO SÁNH HV Excel vs DB ──────────────────────────────────────────────────
+router.post('/check-students', auth, role('admin'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Chưa chọn file!' });
+    const wb = XLSX.read(req.file.buffer, { cellDates: true });
+
+    // Lấy tất cả HV từ DB
+    const [dbStudents] = await db.query('SELECT id, name, instrument, status FROM students');
+    const studentByName = new Map(dbStudents.map(s => [s.name.trim(), s]));
+
+    // Đọc tất cả HV từ Excel (tất cả sheet điểm danh)
+    const excelStudents = new Map(); // name → { name, instrument, teacher, sheets }
+
+    for (const [sheetName] of Object.entries(SHEET_COURSE)) {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) continue;
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[1]) continue;
+        const rawName = String(r[1]).trim();
+        if (!rawName) continue;
+        const name = NAME_ALIAS[rawName] || rawName;
+        if (!excelStudents.has(name)) {
+          excelStudents.set(name, {
+            raw_name: rawName,
+            name,
+            instrument: String(r[4] || '').trim(),
+            teacher: String(r[5] || '').trim(),
+            hinhThuc: String(r[6] || '').trim(),
+            sheets: [],
+          });
+        }
+        excelStudents.get(name).sheets.push(sheetName);
+      }
+    }
+
+    // So sánh
+    const matched = [];    // Có trong cả 2
+    const onlyExcel = [];  // Chỉ trong Excel, chưa có trong DB
+    const onlyDB = [];     // Chỉ trong DB, không có trong Excel
+
+    for (const [name, info] of excelStudents) {
+      const dbStu = studentByName.get(name);
+      if (dbStu) {
+        matched.push({ name, instrument: info.instrument, teacher: info.teacher, db_id: dbStu.id, status: dbStu.status });
+      } else {
+        onlyExcel.push({ name: info.raw_name, mapped: name, instrument: info.instrument, teacher: info.teacher, hinhThuc: info.hinhThuc });
+      }
+    }
+
+    for (const [name, stu] of studentByName) {
+      if (!excelStudents.has(name)) {
+        onlyDB.push({ name, instrument: stu.instrument, status: stu.status, db_id: stu.id });
+      }
+    }
+
+    res.json({
+      success: true,
+      summary: {
+        excel_total: excelStudents.size,
+        db_total: dbStudents.length,
+        matched: matched.length,
+        only_excel: onlyExcel.length,
+        only_db: onlyDB.length,
+      },
+      matched,
+      only_excel: onlyExcel,
+      only_db: onlyDB,
+    });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 module.exports = router;
 
 // ─── TẠO HV MỚI + LỚP HỌC từ Excel ──────────────────────────────────────────
