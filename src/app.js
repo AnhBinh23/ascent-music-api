@@ -53,7 +53,7 @@ app.use('/api/push',             require('./routes/push').router);
 app.use('/api/ai',               require('./routes/ai'));
 app.use('/api/salary',           require('./routes/salaryPayments'));
 app.use('/api/schedule-overrides', require('./routes/scheduleOverrides'));
-
+app.use('/api/import', require('./routes/importExcel'));
 // ─── CRON: Nhắc lịch học trước 30 phút (chạy mỗi phút, giờ Việt Nam) ───
 const { remindUpcomingClasses } = require('./routes/push');
 cron.schedule('* * * * *', async () => {
