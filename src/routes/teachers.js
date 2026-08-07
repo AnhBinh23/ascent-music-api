@@ -67,6 +67,48 @@ router.get('/by-user/:userId', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+router.get('/absent-sessions', auth, role('admin'), async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    const [rows] = await db.query(`
+      SELECT
+        ci.id           AS checkin_id,
+        ci.date,
+        ci.salary_earned,
+        ci.note         AS checkin_note,
+        t.id            AS teacher_id,
+        t.name          AS teacher_name,
+        c.id            AS class_id,
+        c.name          AS class_name,
+        c.type          AS class_type,
+        c.teacher_salary,
+        (SELECT COUNT(*) FROM class_students cs2 WHERE cs2.class_id = c.id) AS total_students,
+        (SELECT COUNT(*) FROM attendance a WHERE a.class_id = c.id AND a.date = ci.date AND a.status IN ('present','late')) AS present_count,
+        (SELECT COUNT(*) FROM attendance a WHERE a.class_id = c.id AND a.date = ci.date AND a.status IN ('absent','excused')) AS absent_count
+      FROM checkin ci
+      JOIN teachers t ON ci.teacher_id = t.id
+      JOIN classes  c ON ci.class_id   = c.id
+      WHERE c.type = 'group'
+        AND MONTH(ci.date) = ?
+        AND YEAR(ci.date)  = ?
+      HAVING absent_count > 0
+      ORDER BY t.name ASC, ci.date ASC
+    `, [month, year]);
+    res.json({ success: true, rows });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+
+router.patch('/checkin/:checkinId/salary', auth, role('admin'), async (req, res) => {
+  try {
+    const { salary_earned, note } = req.body;
+    await db.query(
+      'UPDATE checkin SET salary_earned=?, note=? WHERE id=?',
+      [Number(salary_earned) || 0, note || '', req.params.checkinId]
+    );
+    res.json({ success: true, message: 'Đã cập nhật lương buổi!' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
 router.get('/:id',    auth,                         ctrl.getById);
 router.post('/',      auth, role('admin','staff'),   ctrl.create);
 router.put('/:id',    auth, role('admin','staff'),   ctrl.update);
