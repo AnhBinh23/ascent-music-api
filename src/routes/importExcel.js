@@ -447,6 +447,46 @@ router.post('/check-students', auth, role('admin'), upload.single('file'), async
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// ─── CẬP NHẬT NICKNAME HÀng loạt từ Excel ───────────────────────────────────
+router.post('/update-nicknames', auth, role('admin'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Chưa chọn file!' });
+    const wb = XLSX.read(req.file.buffer, { cellDates: true });
+
+    const [students] = await db.query('SELECT id, TRIM(name) AS name FROM students');
+    const studentByName = new Map(students.map(s => [s.name, s.id]));
+
+    let updated = 0, skipped = 0;
+
+    for (const [sheetName] of Object.entries(SHEET_COURSE)) {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) continue;
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[1]) continue;
+        const rawName = String(r[1]).trim();
+        if (!rawName) continue;
+        const name = NAME_ALIAS[rawName] || rawName;
+        const nickname = String(r[2] || '').trim();
+        if (!nickname || nickname === 'NaN') { skipped++; continue; }
+
+        const studentId = studentByName.get(name);
+        if (!studentId) { skipped++; continue; }
+
+        await db.query(
+          'UPDATE students SET nickname=? WHERE id=?',
+          [nickname, studentId]
+        );
+        updated++;
+      }
+    }
+
+    res.json({ success: true, updated, skipped });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 module.exports = router;
 
 // ─── TẠO HV MỚI + LỚP HỌC từ Excel ──────────────────────────────────────────
@@ -517,10 +557,11 @@ router.post('/create-students', auth, role('admin'), upload.single('file'), asyn
         if (!studentId) {
           const newId = `hv-${String(nextHvNum).padStart(3, '0')}`;
           nextHvNum++;
-          await db.query(
-            `INSERT INTO students (id, name, dob, instrument, level, phone, status, total_sessions, note)
-             VALUES (?, ?, ?, ?, 'Sơ cấp', '0000000000', 'active', ?, ?)`,
-            [newId, name, dob, instrument, totalSessions, `Import từ Excel - GV: ${r[5]||''}`]
+          const nickname2 = String(r[2] || '').trim();
+        await db.query(
+            `INSERT INTO students (id, name, nickname, dob, instrument, level, phone, status, total_sessions, note)
+             VALUES (?, ?, ?, ?, ?, 'Sơ cấp', '0000000000', 'active', ?, ?)`,
+            [newId, name, nickname2||null, dob, instrument, totalSessions, `Import từ Excel - GV: ${r[5]||''}`]
           );
           studentByName.set(name, newId);
           studentId = newId;
