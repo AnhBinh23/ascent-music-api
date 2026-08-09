@@ -45,7 +45,8 @@ router.get('/renewal-prediction', auth, role('admin'), async (req, res) => {
         COUNT(CASE WHEN a.course_number < s.current_course THEN 1 END) AS prev_total,
         c.name AS class_name, c.type AS class_type, c.tuition_fee,
         t.name AS teacher_name,
-        (SELECT tu.amount FROM tuition tu WHERE tu.student_id = s.id ORDER BY tu.course_number DESC, tu.created_at DESC LIMIT 1) AS last_tuition_amount
+        (SELECT tu.amount FROM tuition tu WHERE tu.student_id = s.id ORDER BY tu.course_number DESC, tu.created_at DESC LIMIT 1) AS last_tuition_amount,
+        (SELECT COALESCE(SUM(tu2.amount - tu2.paid), 0) FROM tuition tu2 WHERE tu2.student_id = s.id AND tu2.status != 'Đã thanh toán') AS debt_amount
       FROM students s
       LEFT JOIN attendance a ON a.student_id = s.id
       LEFT JOIN class_students cs ON cs.student_id = s.id
@@ -94,6 +95,7 @@ router.get('/renewal-prediction', auth, role('admin'), async (req, res) => {
         all_rate: allRate, cur_rate: curRate, prev_rate: prevRate, trend,
         has_renewed: hasRenewed, level, score,
         confirmed: !!rn.confirmed, note: rn.note || '',
+        debt: Number(r.debt_amount) || 0,
       };
     });
 
