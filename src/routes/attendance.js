@@ -46,40 +46,43 @@ router.get('/course-progress', auth, role('admin','staff'), async (req, res) => 
         s.current_course,
         s.instrument,
         s.level,
+        s.nickname,
         COALESCE(c.id,   NULL) AS class_id,
         COALESCE(c.name, NULL) AS class_name,
         COALESCE(t.name, NULL) AS teacher_name,
         c.type           AS class_type,
-        COUNT(CASE WHEN a.status IN ('present','late') THEN 1 END) AS attended
+        COUNT(CASE WHEN a.status IN ('present','late') AND a.course_number = s.current_course THEN 1 END) AS attended,
+        COUNT(CASE WHEN a.course_number = s.current_course THEN 1 END) AS total_sessions_current
       FROM students s
       LEFT JOIN class_students cs ON cs.student_id = s.id
       LEFT JOIN classes  c  ON c.id  = cs.class_id
       LEFT JOIN teachers t  ON t.id  = c.teacher_id
       LEFT JOIN attendance a ON a.student_id = s.id AND a.class_id = c.id
-                            AND a.course_number = s.current_course
-      WHERE s.status = 'active'
-      GROUP BY s.id, s.name, s.phone, s.total_sessions, s.current_course, s.instrument, s.level,
+      WHERE s.status IN ('active', 'paused')
+      GROUP BY s.id, s.name, s.phone, s.total_sessions, s.current_course, s.instrument, s.level, s.nickname,
                c.id, c.name, t.name, c.type
       ORDER BY
-        (s.total_sessions - COUNT(CASE WHEN a.status IN ('present','late') THEN 1 END)) ASC,
+        (s.total_sessions - COUNT(CASE WHEN a.status IN ('present','late') AND a.course_number = s.current_course THEN 1 END)) ASC,
         s.name ASC
     `);
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// Chi tiết buổi của 1 HV trong 1 lớp — CHỈ khóa hiện tại của HV đó
+// Chi tiết buổi của 1 HV trong 1 lớp — CHỈ khóa hiện tại
 router.get('/student-sessions/:studentId/:classId', auth, async (req, res) => {
   try {
+    const { course } = req.query;
+    const courseFilter = course ? Number(course) : null;
     const [rows] = await db.query(`
       SELECT a.*, sc.time_start, sc.time_end
       FROM attendance a
       LEFT JOIN schedules sc ON sc.class_id = a.class_id
         AND sc.day_of_week = DAYOFWEEK(a.date)
       WHERE a.student_id = ? AND a.class_id = ?
-        AND a.course_number = (SELECT current_course FROM students WHERE id = a.student_id)
+        AND a.course_number = COALESCE(?, (SELECT current_course FROM students WHERE id = a.student_id))
       ORDER BY a.date ASC
-    `, [req.params.studentId, req.params.classId]);
+    `, [req.params.studentId, req.params.classId, courseFilter]);
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
