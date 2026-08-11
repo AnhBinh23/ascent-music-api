@@ -201,7 +201,13 @@ router.put('/:id', auth, role('admin','staff'), async (req, res) => {
 // DELETE /api/classes/:id
 router.delete('/:id', auth, role('admin'), async (req, res) => {
   try {
-    await db.query('DELETE FROM classes WHERE id = ?', [req.params.id]);
+    const id = req.params.id;
+    await db.query('DELETE FROM attendance WHERE class_id = ?', [id]);
+    await db.query('DELETE FROM tuition WHERE class_id = ?', [id]);
+    await db.query('DELETE FROM class_students WHERE class_id = ?', [id]);
+    await db.query('DELETE FROM checkin WHERE class_id = ?', [id]);
+    await db.query('DELETE FROM schedules WHERE class_id = ?', [id]);
+    await db.query('DELETE FROM classes WHERE id = ?', [id]);
     res.json({ success: true, message: 'Đã xóa lớp học!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
