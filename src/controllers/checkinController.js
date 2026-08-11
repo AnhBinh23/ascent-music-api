@@ -43,6 +43,15 @@ exports.create = async (req, res) => {
     if (!teacherRows.length) return res.status(404).json({ message: 'Không tìm thấy giáo viên' });
     const teacher_id = teacherRows[0].id;
 
+    // Kiểm tra đã chấm công lớp này hôm nay chưa
+    const [existing] = await db.query(
+      'SELECT id FROM checkin WHERE teacher_id = ? AND class_id = ? AND date = ?',
+      [teacher_id, class_id, date]
+    );
+    if (existing.length > 0) {
+      return res.status(400).json({ message: 'Lớp này đã chấm công hôm nay rồi!' });
+    }
+
     // Lấy lương/buổi từ lớp học
     const [classInfo] = await db.query(
       'SELECT type, teacher_salary FROM classes WHERE id = ?', [class_id]
