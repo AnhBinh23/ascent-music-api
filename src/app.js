@@ -55,13 +55,22 @@ app.use('/api/salary',           require('./routes/salaryPayments'));
 app.use('/api/schedule-overrides', require('./routes/scheduleOverrides'));
 app.use('/api/import', require('./routes/importExcel'));
 
-const { remindUpcomingClasses } = require('./routes/push');
+const { remindUpcomingClasses, checkCourseEnding } = require('./routes/push');
 cron.schedule('* * * * *', async () => {
   try {
     const sent = await remindUpcomingClasses();
     if (sent > 0) console.log(`⏰ Đã nhắc ${sent} buổi học sắp tới`);
   } catch (e) {
     console.error('Cron remind error:', e.message);
+  }
+}, { timezone: 'Asia/Ho_Chi_Minh' });
+
+cron.schedule('0 8 * * *', async () => {
+  try {
+    const sent = await checkCourseEnding();
+    if (sent > 0) console.log(`📋 Đã thông báo ${sent} HV sắp hết khóa`);
+  } catch (e) {
+    console.error('Cron course-ending error:', e.message);
   }
 }, { timezone: 'Asia/Ho_Chi_Minh' });
 

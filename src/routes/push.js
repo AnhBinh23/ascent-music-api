@@ -136,7 +136,53 @@ async function remindUpcomingClasses() {
   return sent;
 }
 
-// ─── Route HTTP để test thủ công ───
+async function checkCourseEnding() {
+  const THRESHOLD = 3;
+  const [rows] = await db.query(`
+    SELECT
+      s.id AS student_id, s.name AS student_name, s.nickname,
+      s.total_sessions, s.current_course, s.instrument,
+      c.id AS class_id, c.name AS class_name,
+      t.id AS teacher_id, t.user_id AS teacher_user_id, t.name AS teacher_name,
+      COUNT(CASE WHEN a.status IN ('present','late') AND a.course_number = s.current_course THEN 1 END) AS attended
+    FROM students s
+    INNER JOIN class_students cs ON cs.student_id = s.id
+    INNER JOIN classes c ON c.id = cs.class_id
+    INNER JOIN teachers t ON t.id = c.teacher_id
+    LEFT JOIN attendance a ON a.student_id = s.id AND a.class_id = c.id
+    WHERE s.status = 'active' AND c.status = 'Đang học' AND s.total_sessions > 0
+    GROUP BY s.id, s.name, s.nickname, s.total_sessions, s.current_course, s.instrument,
+             c.id, c.name, t.id, t.user_id, t.name
+    HAVING (s.total_sessions - attended) <= ? AND (s.total_sessions - attended) >= 0
+  `, [THRESHOLD]);
+
+  let sent = 0;
+  for (const row of rows) {
+    const remaining = row.total_sessions - row.attended;
+    if (!row.teacher_user_id) continue;
+
+    const key = `${row.student_id}_${row.class_id}_${row.current_course}`;
+    const [already] = await db.query(
+      `SELECT id FROM notifications WHERE type = 'course_ending' AND message LIKE ? AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+      [`%${key}%`]
+    );
+    if (already.length) continue;
+
+    const displayName = row.nickname ? `${row.student_name} (${row.nickname})` : row.student_name;
+    const title = `HV ${displayName} sắp hết khóa`;
+    const body = `Còn ${remaining} buổi — Lớp ${row.class_name}. Hãy chuẩn bị kiểm tra cuối khóa.`;
+
+    const ok = await sendPushToUser(row.teacher_user_id, { title, body, url: '/teacher/classes' });
+    if (ok) sent++;
+
+    await db.query(
+      `INSERT INTO notifications (title, message, type, recipient, sent_by) VALUES (?,?,?,?,?)`,
+      [title, `${body} [key:${key}]`, 'course_ending', 'specific', 'system']
+    );
+  }
+  return sent;
+}
+
 router.post('/remind-schedule', async (req, res) => {
   try {
     const sent = await remindUpcomingClasses();
@@ -146,4 +192,13 @@ router.post('/remind-schedule', async (req, res) => {
   }
 });
 
-module.exports = { router, sendPushToUser, remindUpcomingClasses };
+router.post('/check-course-ending', async (req, res) => {
+  try {
+    const sent = await checkCourseEnding();
+    res.json({ success: true, sent });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+module.exports = { router, sendPushToUser, remindUpcomingClasses, checkCourseEnding };
