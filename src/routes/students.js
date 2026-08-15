@@ -3,6 +3,7 @@ const ctrl   = require('../controllers/studentController');
 const auth   = require('../middleware/auth');
 const role   = require('../middleware/role');
 const db     = require('../models/db');
+const v      = require('../middleware/validate');
 
 router.get('/',       auth, ctrl.getAll);
 router.get('/search', auth, ctrl.search);
@@ -21,8 +22,8 @@ router.get('/by-user/:userId', auth, async (req, res) => {
 });
 
 router.get('/:id',    auth, ctrl.getById);
-router.post('/',      auth, role('admin','staff'), ctrl.create);
-router.put('/:id',    auth, role('admin','staff'), ctrl.update);
+router.post('/',      auth, role('admin','staff'), v.student.create, ctrl.create);
+router.put('/:id',    auth, role('admin','staff'), v.student.update, ctrl.update);
 router.delete('/:id', auth, role('admin','staff'), async (req, res) => {
   try {
     const id = req.params.id;

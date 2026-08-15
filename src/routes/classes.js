@@ -1,8 +1,8 @@
 const router = require('express').Router();
-const ctrl   = require('../controllers/classController');
 const auth   = require('../middleware/auth');
 const role   = require('../middleware/role');
 const db     = require('../models/db');
+const v      = require('../middleware/validate');
 
 // GET /api/classes
 router.get('/', auth, async (req, res) => {
@@ -138,7 +138,7 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // POST /api/classes
-router.post('/', auth, role('admin','staff'), async (req, res) => {
+router.post('/', auth, role('admin','staff'), v.class.create, async (req, res) => {
   try {
     const {
       name, instrument, type, teacher_id, room_id, max_students,

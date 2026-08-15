@@ -3,12 +3,13 @@ const ctrl   = require('../controllers/notificationController');
 const auth   = require('../middleware/auth');
 const role   = require('../middleware/role');
 const db     = require('../models/db');
+const v      = require('../middleware/validate');
 
 // Lấy thông báo cho user hiện tại
 router.get('/', auth, ctrl.getForUser);
 
 // Gửi thông báo
-router.post('/', auth, role('admin', 'teacher'), ctrl.send);
+router.post('/', auth, role('admin', 'teacher'), v.notification.send, ctrl.send);
 
 // Lịch sử thông báo
 router.get('/history', auth, ctrl.getHistory);

@@ -25,9 +25,9 @@ exports.login = async (req, res) => {
     if (!valid) return res.status(401).json({ message: 'Mật khẩu không đúng' });
 
     const token = jwt.sign(
-      { id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone },
+      { id: user.id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES }
+      { expiresIn: process.env.JWT_EXPIRES || '7d' }
     );
 
     const { password: _, ...userInfo } = user;

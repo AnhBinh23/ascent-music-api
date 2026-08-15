@@ -3,6 +3,7 @@ const ctrl   = require('../controllers/teacherController');
 const auth   = require('../middleware/auth');
 const role   = require('../middleware/role');
 const db     = require('../models/db');
+const v      = require('../middleware/validate');
 
 router.get('/', auth, ctrl.getAll);
 
@@ -109,9 +110,9 @@ router.patch('/checkin/:checkinId/salary', auth, role('admin'), async (req, res)
     res.json({ success: true, message: 'Đã cập nhật lương buổi!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
-router.get('/:id',    auth,                         ctrl.getById);
-router.post('/',      auth, role('admin','staff'),   ctrl.create);
-router.put('/:id',    auth, role('admin','staff'),   ctrl.update);
-router.delete('/:id', auth, role('admin','staff'),   ctrl.delete);
+router.get('/:id',    auth,                                      ctrl.getById);
+router.post('/',      auth, role('admin','staff'), v.teacher.create, ctrl.create);
+router.put('/:id',    auth, role('admin','staff'), v.teacher.update, ctrl.update);
+router.delete('/:id', auth, role('admin','staff'),                 ctrl.delete);
 
 module.exports = router;

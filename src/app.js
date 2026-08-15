@@ -1,7 +1,8 @@
-const express = require('express');
-const cors    = require('cors');
-const path    = require('path');
-const cron    = require('node-cron');
+const express      = require('express');
+const cors         = require('cors');
+const path         = require('path');
+const cron         = require('node-cron');
+const errorHandler = require('./middleware/errorHandler');
 require('dotenv').config();
 
 const app = express();
@@ -31,7 +32,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Routes
 app.use('/api/auth',             require('./routes/auth'));
 app.use('/api/students',         require('./routes/students'));
 app.use('/api/teachers',         require('./routes/teachers'));
@@ -54,7 +54,7 @@ app.use('/api/ai',               require('./routes/ai'));
 app.use('/api/salary',           require('./routes/salaryPayments'));
 app.use('/api/schedule-overrides', require('./routes/scheduleOverrides'));
 app.use('/api/import', require('./routes/importExcel'));
-// ─── CRON: Nhắc lịch học trước 30 phút (chạy mỗi phút, giờ Việt Nam) ───
+
 const { remindUpcomingClasses } = require('./routes/push');
 cron.schedule('* * * * *', async () => {
   try {
@@ -66,6 +66,7 @@ cron.schedule('* * * * *', async () => {
 }, { timezone: 'Asia/Ho_Chi_Minh' });
 
 app.get('/', (req, res) => res.json({ message: '🎵 Ascent Music API đang chạy!' }));
-app.use((req, res) => res.status(404).json({ message: 'Route không tồn tại' }));
+app.use((req, res) => res.status(404).json({ success: false, message: 'Route không tồn tại' }));
+app.use(errorHandler);
 
 module.exports = app;

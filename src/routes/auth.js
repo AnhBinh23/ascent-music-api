@@ -4,11 +4,13 @@ const auth    = require('../middleware/auth');
 const role    = require('../middleware/role');
 const db      = require('../models/db');
 const bcrypt  = require('bcryptjs');
+const v       = require('../middleware/validate');
+const { loginLimiter, registerLimiter } = require('../middleware/rateLimiter');
 
-router.post('/login',    ctrl.login);
-router.post('/register', ctrl.register);
+router.post('/login',    loginLimiter,    v.auth.login,          ctrl.login);
+router.post('/register', registerLimiter, v.auth.register,       ctrl.register);
 router.get('/me',        auth, ctrl.getMe);
-router.put('/password',  auth, ctrl.changePassword);
+router.put('/password',  auth, v.auth.changePassword,            ctrl.changePassword);
 
 // PUT /api/auth/profile
 router.put('/profile', auth, async (req, res) => {
@@ -51,7 +53,7 @@ router.patch('/accounts/:userId/status', auth, role('admin'), async (req, res) =
 });
 
 // POST /api/auth/create-account — admin tạo tài khoản cho GV/HV
-router.post('/create-account', auth, role('admin'), async (req, res) => {
+router.post('/create-account', auth, role('admin'), v.auth.createAccount, async (req, res) => {
   try {
     const { link_id, link_type, name, email, password } = req.body;
     if (!link_id || !link_type || !email || !password) {
@@ -90,7 +92,7 @@ router.post('/create-account', auth, role('admin'), async (req, res) => {
 });
 
 // POST /api/auth/reset-password — admin đặt lại mật khẩu
-router.post('/reset-password', auth, role('admin'), async (req, res) => {
+router.post('/reset-password', auth, role('admin'), v.auth.resetPassword, async (req, res) => {
   try {
     const { user_id, new_password } = req.body;
     if (!user_id || !new_password) {
@@ -122,6 +124,9 @@ router.get('/users', auth, async (req, res) => {
 router.get('/no-account', auth, role('admin'), async (req, res) => {
   try {
     const { type } = req.query;
+    if (type !== 'teacher' && type !== 'student') {
+      return res.status(400).json({ success: false, message: 'type phải là teacher hoặc student' });
+    }
     const table = type === 'teacher' ? 'teachers' : 'students';
     const [rows] = await db.query(
       `SELECT id, name FROM ${table} WHERE user_id IS NULL ORDER BY name ASC`

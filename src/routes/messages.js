@@ -1,7 +1,8 @@
 const router             = require('express').Router();
 const auth               = require('../middleware/auth');
 const db                 = require('../models/db');
-const { sendPushToUser } = require('./push'); // ← dùng lại từ push.js
+const { sendPushToUser } = require('./push');
+const v                  = require('../middleware/validate');
 
 // ─── Lấy số tin nhắn chưa đọc ────────────────────────────────────────────────
 router.get('/unread-count', auth, async (req, res) => {
@@ -36,7 +37,7 @@ router.get('/:contactId', auth, async (req, res) => {
 });
 
 // ─── Gửi tin nhắn ────────────────────────────────────────────────────────────
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, v.message.send, async (req, res) => {
   try {
     const { to_id, message } = req.body;
 
