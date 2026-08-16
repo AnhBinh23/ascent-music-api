@@ -57,7 +57,7 @@ router.get('/course-progress', auth, role('admin','staff'), async (req, res) => 
       LEFT JOIN class_students cs ON cs.student_id = s.id
       LEFT JOIN classes  c  ON c.id  = cs.class_id
       LEFT JOIN teachers t  ON t.id  = c.teacher_id
-      LEFT JOIN attendance a ON a.student_id = s.id AND a.class_id = c.id
+      LEFT JOIN attendance a ON a.student_id = s.id AND (a.class_id = c.id OR a.home_class_id = c.id)
       WHERE s.status IN ('active', 'paused')
       GROUP BY s.id, s.name, s.phone, s.total_sessions, s.current_course, s.instrument, s.level, s.nickname,
                c.id, c.name, t.name, c.type
@@ -75,15 +75,16 @@ router.get('/student-sessions/:studentId/:classId', auth, async (req, res) => {
     const { course } = req.query;
     const courseFilter = course ? Number(course) : null;
     const [rows] = await db.query(`
-      SELECT a.*, sc.time_start, sc.time_end
+      SELECT a.*, sc.time_start, sc.time_end, a.is_guest,
+        c.name AS attended_class_name
       FROM attendance a
       LEFT JOIN schedules sc ON sc.class_id = a.class_id
         AND sc.day_of_week = DAYOFWEEK(a.date)
-      WHERE a.student_id = ? AND a.class_id = ?
+      LEFT JOIN classes c ON c.id = a.class_id
+      WHERE a.student_id = ? AND (a.class_id = ? OR a.home_class_id = ?)
         AND a.course_number = COALESCE(?, (SELECT current_course FROM students WHERE id = a.student_id))
       ORDER BY a.date ASC
-    `, [req.params.studentId, req.params.classId, courseFilter]);
-    res.json({ success: true, rows });
+    `, [req.params.studentId, req.params.classId, req.params.classId, courseFilter]);
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
