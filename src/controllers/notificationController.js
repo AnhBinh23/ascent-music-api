@@ -38,9 +38,9 @@ exports.getForUser = async (req, res) => {
       const [rows] = await db.query(`
         SELECT n.*, u.name AS sender_name
         FROM notifications n LEFT JOIN users u ON n.sent_by = u.id
-        WHERE n.recipient = 'all' OR n.recipient = 'teachers'
-        ORDER BY n.created_at DESC LIMIT 20
-      `);
+        WHERE n.recipient IN ('all', 'teachers') OR n.recipient = ?
+        ORDER BY n.created_at DESC LIMIT 30
+      `, [`teacher:${req.user.id}`]);
       return res.json({ success: true, rows });
     }
     if (role === 'student') {

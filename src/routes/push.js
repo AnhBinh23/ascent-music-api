@@ -161,23 +161,23 @@ async function checkCourseEnding() {
     const remaining = row.total_sessions - row.attended;
     if (!row.teacher_user_id) continue;
 
-    const key = `${row.student_id}_${row.class_id}_${row.current_course}`;
+    const key = `course_end_${row.student_id}_${row.class_id}_${row.current_course}`;
     const [already] = await db.query(
-      `SELECT id FROM notifications WHERE type = 'course_ending' AND message LIKE ? AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+      `SELECT id FROM notifications WHERE type = 'course_ending' AND message LIKE ?`,
       [`%${key}%`]
     );
     if (already.length) continue;
 
     const displayName = row.nickname ? `${row.student_name} (${row.nickname})` : row.student_name;
-    const title = `HV ${displayName} sắp hết khóa`;
-    const body = `Còn ${remaining} buổi — Lớp ${row.class_name}. Hãy chuẩn bị kiểm tra cuối khóa.`;
+    const title = `📋 HV ${displayName} sắp hết khóa`;
+    const body = `Còn ${remaining} buổi — Lớp ${row.class_name}. Chuẩn bị kiểm tra cuối khóa.`;
 
     const ok = await sendPushToUser(row.teacher_user_id, { title, body, url: '/teacher/classes' });
     if (ok) sent++;
 
     await db.query(
       `INSERT INTO notifications (title, message, type, recipient, sent_by) VALUES (?,?,?,?,?)`,
-      [title, `${body} [key:${key}]`, 'course_ending', 'specific', 'system']
+      [title, `${body} [${key}]`, 'course_ending', `teacher:${row.teacher_user_id}`, 'system']
     );
   }
   return sent;
