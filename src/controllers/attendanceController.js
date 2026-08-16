@@ -3,7 +3,10 @@ const db = require('../models/db');
 exports.getByClass = async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT a.*, s.name as student_name FROM attendance a LEFT JOIN students s ON a.student_id = s.id WHERE a.class_id = ? ORDER BY a.date DESC',
+      `SELECT a.*, s.name as student_name, s.nickname,
+       CASE WHEN a.is_guest = 1 THEN CONCAT(s.name, ' (vãng lai)') ELSE s.name END AS display_name
+       FROM attendance a LEFT JOIN students s ON a.student_id = s.id
+       WHERE a.class_id = ? ORDER BY a.date DESC`,
       [req.params.classId]
     );
     res.json({ success: true, rows });
@@ -13,7 +16,10 @@ exports.getByClass = async (req, res) => {
 exports.getByStudent = async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT * FROM attendance WHERE student_id = ? ORDER BY date DESC',
+      `SELECT a.*, c.name AS class_name,
+       CASE WHEN a.is_guest = 1 THEN 'Vãng lai' ELSE 'Cố định' END AS attendance_type
+       FROM attendance a LEFT JOIN classes c ON a.class_id = c.id
+       WHERE a.student_id = ? ORDER BY a.date DESC`,
       [req.params.studentId]
     );
     res.json({ success: true, rows });
@@ -24,12 +30,19 @@ exports.save = async (req, res) => {
   try {
     const { attendanceList } = req.body;
     for (const item of attendanceList) {
+      const isGuest = item.is_guest ? 1 : 0;
+      const homeClassId = item.home_class_id || null;
+
       await db.query(`
-        INSERT INTO attendance (class_id, student_id, date, status, note, course_number)
-        VALUES (?, ?, ?, ?, ?,
-          COALESCE((SELECT course_number FROM class_students WHERE class_id = ? AND student_id = ? LIMIT 1), 1))
-        ON DUPLICATE KEY UPDATE status = VALUES(status), note = VALUES(note)
-      `, [item.class_id, item.student_id, item.date, item.status, item.note, item.class_id, item.student_id]);
+        INSERT INTO attendance (class_id, student_id, date, status, note, is_guest, home_class_id, course_number)
+        VALUES (?, ?, ?, ?, ?, ?, ?,
+          COALESCE(
+            (SELECT course_number FROM class_students WHERE class_id = COALESCE(?, ?) AND student_id = ? LIMIT 1),
+            1
+          ))
+        ON DUPLICATE KEY UPDATE status = VALUES(status), note = VALUES(note), is_guest = VALUES(is_guest), home_class_id = VALUES(home_class_id)
+      `, [item.class_id, item.student_id, item.date, item.status, item.note, isGuest, homeClassId,
+          homeClassId, item.class_id, item.student_id]);
     }
 
     const classIds = [...new Set(attendanceList.map(a => a.class_id))];
@@ -58,7 +71,14 @@ exports.save = async (req, res) => {
       );
       const amount = rates.length ? rates[0].amount : 0;
 
-      const note = `${cls.name}: ${presentCount}/${totalCount} HV đi học`;
+      const [[guestCount]] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM attendance
+         WHERE class_id = ? AND date = ? AND status IN ('present','late') AND is_guest = 1`,
+        [classId, date]
+      );
+
+      const guestNote = guestCount.cnt > 0 ? ` (${guestCount.cnt} vãng lai)` : '';
+      const note = `${cls.name}: ${presentCount}/${totalCount} HV di hoc${guestNote}`;
 
       await db.query(`
         INSERT INTO pending_salary (teacher_id, class_id, date, present_count, total_count, amount, note)
@@ -71,13 +91,9 @@ exports.save = async (req, res) => {
         if (teacher?.user_id) {
           await db.query(
             'INSERT INTO notifications (title, message, type, recipient, sent_by) VALUES (?,?,?,?,?)',
-            [
-              `Lương nhóm: ${note}`,
-              `Ngày ${date} — ${amount > 0 ? amount.toLocaleString() + 'đ' : 'Chưa thiết lập mức lương'}. Chờ admin xác nhận.`,
-              'general',
-              `teacher:${teacher.user_id}`,
-              'system'
-            ]
+            [`Luong nhom: ${note}`,
+              `Ngay ${date} — ${amount > 0 ? amount.toLocaleString() + 'd' : 'Chua thiet lap muc luong'}. Cho admin xac nhan.`,
+              'general', `teacher:${teacher.user_id}`, 'system']
           );
         }
       }
@@ -86,18 +102,33 @@ exports.save = async (req, res) => {
       for (const admin of admins) {
         await db.query(
           'INSERT INTO notifications (title, message, type, recipient, sent_by) VALUES (?,?,?,?,?)',
-          [
-            `📋 Điểm danh nhóm: ${note}`,
-            `Ngày ${date} — ${amount > 0 ? amount.toLocaleString() + 'đ' : 'Chưa thiết lập mức lương'}. Cần xác nhận lương.`,
-            'general',
-            `teacher:${admin.id}`,
-            'system'
-          ]
+          [`Diem danh nhom: ${note}`,
+            `Ngay ${date} — ${amount > 0 ? amount.toLocaleString() + 'd' : 'Chua thiet lap muc luong'}. Can xac nhan luong.`,
+            'general', `teacher:${admin.id}`, 'system']
         );
       }
     }
 
-    res.json({ success: true, message: 'Lưu điểm danh thành công!' });
+    res.json({ success: true, message: 'Luu diem danh thanh cong!' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
+
+exports.searchGuest = async (req, res) => {
+  try {
+    const { class_id, q } = req.query;
+    const [rows] = await db.query(`
+      SELECT s.id, s.name, s.nickname, s.instrument,
+        cs2.class_id AS home_class_id, c2.name AS home_class_name
+      FROM students s
+      LEFT JOIN class_students cs2 ON cs2.student_id = s.id
+      LEFT JOIN classes c2 ON c2.id = cs2.class_id AND c2.status = 'Dang hoc'
+      WHERE s.status = 'active'
+        AND s.id NOT IN (SELECT student_id FROM class_students WHERE class_id = ?)
+        AND s.name LIKE ?
+      GROUP BY s.id
+      LIMIT 20
+    `, [class_id, `%${q || ''}%`]);
+    res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 
