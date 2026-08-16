@@ -29,7 +29,7 @@ router.get('/', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-router.post('/', auth, role('admin', 'staff'), async (req, res) => {
+router.post('/', auth, async (req, res) => {
   try {
     const { student_id, class_id, date, note } = req.body;
     if (!student_id || !class_id || !date) {
@@ -44,7 +44,7 @@ router.post('/', auth, role('admin', 'staff'), async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-router.delete('/:id', auth, role('admin', 'staff'), async (req, res) => {
+router.delete('/:id', auth, async (req, res) => {
   try {
     await db.query('DELETE FROM guest_assignments WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Đã xóa!' });
