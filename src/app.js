@@ -55,6 +55,7 @@ app.use('/api/salary',           require('./routes/salaryPayments'));
 app.use('/api/schedule-overrides', require('./routes/scheduleOverrides'));
 app.use('/api/import', require('./routes/importExcel'));
 app.use('/api/makeup', require('./routes/makeup'));
+app.use('/api/flexible-sessions', require('./routes/flexibleSessions'));
 const { remindUpcomingClasses, checkCourseEnding } = require('./routes/push');
 cron.schedule('* * * * *', async () => {
   try {
