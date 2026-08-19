@@ -113,24 +113,6 @@ exports.save = async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 
-exports.searchGuest = async (req, res) => {
-  try {
-    const { class_id, q } = req.query;
-    const [rows] = await db.query(`
-      SELECT s.id, s.name, s.nickname, s.instrument,
-        cs2.class_id AS home_class_id, c2.name AS home_class_name
-      FROM students s
-      LEFT JOIN class_students cs2 ON cs2.student_id = s.id
-      LEFT JOIN classes c2 ON c2.id = cs2.class_id AND c2.status = 'Dang hoc'
-      WHERE s.status = 'active'
-        AND s.id NOT IN (SELECT student_id FROM class_students WHERE class_id = ?)
-        AND s.name LIKE ?
-      GROUP BY s.id
-      LIMIT 20
-    `, [class_id, `%${q || ''}%`]);
-    res.json({ success: true, rows });
-  } catch (err) { res.status(500).json({ message: err.message }); }
-};
 
 exports.getStats = async (req, res) => {
   try {

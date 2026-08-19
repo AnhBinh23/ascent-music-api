@@ -167,5 +167,5 @@ router.get('/all-table', auth, role('admin','staff'), async (req, res) => {
     res.json({ success: true, rows: result, maxSessions });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
-router.get('/search-guest', auth, ctrl.searchGuest);
+
 module.exports = router;
