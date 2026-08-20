@@ -26,7 +26,7 @@ router.get('/', auth, async (req, res) => {
 router.get('/:id/students', auth, async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT s.*, cs.course_number,
+      SELECT s.*, cs.course_number, cs.level AS cs_level, cs.tuition_fee AS cs_tuition_fee, cs.start_date AS cs_start_date, cs.end_date AS cs_end_date, cs.total_sessions AS cs_total_sessions,
         ROUND(
           COALESCE(
             (SELECT COUNT(*) FROM attendance a
@@ -83,7 +83,7 @@ router.patch('/:id/students/:studentId/course', auth, role('admin','staff'), asy
 // POST /api/classes/:id/students — thêm học viên vào lớp (+ gán tổng số buổi)
 router.post('/:id/students', auth, role('admin','staff'), async (req, res) => {
   try {
-    const { student_id, course_number = 1, total_sessions } = req.body;
+    const { student_id, course_number = 1, total_sessions, level, tuition_fee, start_date, end_date } = req.body;
     if (!student_id) {
       return res.status(400).json({ message: 'Thiếu student_id!' });
     }
@@ -96,8 +96,8 @@ router.post('/:id/students', auth, role('admin','staff'), async (req, res) => {
       return res.status(409).json({ message: 'Học viên đã có trong lớp!' });
     }
     await db.query(
-      'INSERT INTO class_students (class_id, student_id, course_number) VALUES (?,?,?)',
-      [req.params.id, student_id, Number(course_number) || 1]
+      'INSERT INTO class_students (class_id, student_id, course_number, level, tuition_fee, start_date, end_date, total_sessions) VALUES (?,?,?,?,?,?,?,?)',
+      [req.params.id, student_id, Number(course_number) || 1, level || 'Sơ cấp', Number(tuition_fee) || 0, start_date || null, end_date || null, Number(total_sessions) || 16]
     );
 
     // Gán tổng số buổi (gói khóa học) cho học viên
@@ -109,6 +109,21 @@ router.post('/:id/students', auth, role('admin','staff'), async (req, res) => {
     }
 
     res.json({ success: true, message: 'Đã thêm học viên vào lớp!' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+router.put('/:id/students/:studentId', auth, role('admin','staff'), async (req, res) => {
+  try {
+    const { level, tuition_fee, start_date, end_date, total_sessions } = req.body;
+    await db.query(
+      `UPDATE class_students SET level=?, tuition_fee=?, start_date=?, end_date=?, total_sessions=?
+       WHERE class_id=? AND student_id=?`,
+      [level || null, Number(tuition_fee) || 0, start_date || null, end_date || null, Number(total_sessions) || 16, req.params.id, req.params.studentId]
+    );
+    if (total_sessions) {
+      await db.query('UPDATE students SET total_sessions=? WHERE id=?', [Number(total_sessions), req.params.studentId]);
+    }
+    res.json({ success: true, message: 'Đã cập nhật!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
