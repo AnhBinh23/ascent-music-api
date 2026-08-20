@@ -240,20 +240,32 @@ router.get('/by-class/:classId/date/:date', auth, async (req, res) => {
 router.get('/merged', auth, async (req, res) => {
   try {
     const { teacher_id, date, class_id } = req.query;
-    if (!teacher_id || !date) return res.json({ success: true, rows: [] });
+    if (!teacher_id || !date || !class_id) return res.json({ success: true, rows: [] });
+
+    const [[currentSchedule]] = await db.query(
+      `SELECT time_start, time_end FROM schedules
+       WHERE class_id = ? AND day_of_week = DAYOFWEEK(?) AND status = 'active' LIMIT 1`,
+      [class_id, date]
+    );
+    if (!currentSchedule) return res.json({ success: true, rows: [] });
 
     const [rows] = await db.query(`
       SELECT fs.id, fs.student_id, fs.session_date, fs.status, fs.class_id AS flex_class_id,
         s.name AS student_name, s.nickname,
-        c.name AS flex_class_name
+        c.name AS flex_class_name,
+        sc.time_start AS flex_time_start, sc.time_end AS flex_time_end
       FROM flexible_sessions fs
       LEFT JOIN students s ON fs.student_id = s.id
       LEFT JOIN classes c ON fs.class_id = c.id
+      LEFT JOIN schedules sc ON sc.class_id = c.id
+        AND sc.day_of_week = DAYOFWEEK(fs.session_date) AND sc.status = 'active'
       WHERE c.teacher_id = ?
         AND fs.session_date = ?
         AND fs.status = 'registered'
         AND fs.class_id != ?
-    `, [teacher_id, date, class_id || '']);
+        AND sc.time_start = ?
+        AND sc.time_end = ?
+    `, [teacher_id, date, class_id, currentSchedule.time_start, currentSchedule.time_end]);
 
     res.json({ success: true, rows });
   } catch (err) { res.status(500).json({ message: err.message }); }
