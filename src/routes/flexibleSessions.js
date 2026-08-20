@@ -237,4 +237,26 @@ router.get('/by-class/:classId/date/:date', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+router.get('/merged', auth, async (req, res) => {
+  try {
+    const { teacher_id, date, class_id } = req.query;
+    if (!teacher_id || !date) return res.json({ success: true, rows: [] });
+
+    const [rows] = await db.query(`
+      SELECT fs.id, fs.student_id, fs.session_date, fs.status, fs.class_id AS flex_class_id,
+        s.name AS student_name, s.nickname,
+        c.name AS flex_class_name
+      FROM flexible_sessions fs
+      LEFT JOIN students s ON fs.student_id = s.id
+      LEFT JOIN classes c ON fs.class_id = c.id
+      WHERE c.teacher_id = ?
+        AND fs.session_date = ?
+        AND fs.status = 'registered'
+        AND fs.class_id != ?
+    `, [teacher_id, date, class_id || '']);
+
+    res.json({ success: true, rows });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 module.exports = router;
