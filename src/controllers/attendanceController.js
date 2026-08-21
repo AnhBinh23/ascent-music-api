@@ -78,7 +78,7 @@ exports.save = async (req, res) => {
       );
 
       const guestNote = guestCount.cnt > 0 ? ` (${guestCount.cnt} vãng lai)` : '';
-      const note = `${cls.name}: ${presentCount}/${totalCount} HV di hoc${guestNote}`;
+      const note = `${cls.name}: ${presentCount}/${totalCount} HV đi học${guestNote}`;
 
       await db.query(`
         INSERT INTO pending_salary (teacher_id, class_id, date, present_count, total_count, amount, note)
@@ -91,8 +91,8 @@ exports.save = async (req, res) => {
         if (teacher?.user_id) {
           await db.query(
             'INSERT INTO notifications (title, message, type, recipient, sent_by) VALUES (?,?,?,?,?)',
-            [`Luong nhom: ${note}`,
-              `Ngay ${date} — ${amount > 0 ? amount.toLocaleString() + 'd' : 'Chua thiet lap muc luong'}. Cho admin xac nhan.`,
+            [`Lương nhóm: ${note}`,
+              `Ngày ${date} — ${amount > 0 ? amount.toLocaleString() + 'đ' : 'Chưa thiết lập mức lương'}. Chờ admin xác nhận.`,
               'general', `teacher:${teacher.user_id}`, 'system']
           );
         }
@@ -102,14 +102,14 @@ exports.save = async (req, res) => {
       for (const admin of admins) {
         await db.query(
           'INSERT INTO notifications (title, message, type, recipient, sent_by) VALUES (?,?,?,?,?)',
-          [`Diem danh nhom: ${note}`,
-            `Ngay ${date} — ${amount > 0 ? amount.toLocaleString() + 'd' : 'Chua thiet lap muc luong'}. Can xac nhan luong.`,
-            'general', `teacher:${admin.id}`, 'system']
+          [`📋 Điểm danh nhóm: ${note}`,
+            `Ngày ${date} — ${amount > 0 ? amount.toLocaleString() + 'đ' : 'Chưa thiết lập mức lương'}. Cần xác nhận lương.`,
+            'general', 'all', 'system']
         );
       }
     }
 
-    res.json({ success: true, message: 'Luu diem danh thanh cong!' });
+    res.json({ success: true, message: 'Lưu điểm danh thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 
