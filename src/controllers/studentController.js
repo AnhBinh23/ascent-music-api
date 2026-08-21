@@ -22,11 +22,11 @@ exports.create = async (req, res) => {
             tuition_fee, start_date, end_date } = req.body;
     const [result] = await db.query(
       `INSERT INTO students
-       (name,dob,gender,phone,email,address,instrument,level,parent_name,parent_phone,note,total_sessions,tuition_fee,start_date,end_date)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (name,dob,gender,phone,email,address,instrument,level,parent_name,parent_phone,note,total_sessions,tuition_fee,start_date,end_date,bonus_sessions)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [name,dob,gender,phone,email,address,instrument,level,
        parent_name,parent_phone,note,total_sessions||0,
-       tuition_fee||0,start_date||null,end_date||null]
+       tuition_fee||0,start_date||null,end_date||null,req.body.bonus_sessions||0]
     );
     res.json({ success: true, message: 'Thêm học viên thành công!', id: result.insertId });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -41,11 +41,11 @@ exports.update = async (req, res) => {
       `UPDATE students SET
        name=?,dob=?,gender=?,phone=?,email=?,address=?,instrument=?,level=?,
        parent_name=?,parent_phone=?,note=?,status=?,total_sessions=?,
-       tuition_fee=?,start_date=?,end_date=?
+       tuition_fee=?,start_date=?,end_date=?,bonus_sessions=?
        WHERE id=?`,
       [name,dob,gender,phone,email,address,instrument,level,
        parent_name,parent_phone,note,status,total_sessions||0,
-       tuition_fee||0,start_date||null,end_date||null,req.params.id]
+       tuition_fee||0,start_date||null,end_date||null,req.body.bonus_sessions||0,req.params.id]
     );
     res.json({ success: true, message: 'Cập nhật thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
