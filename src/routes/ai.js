@@ -14,7 +14,7 @@ const callAI = async (systemPrompt, userMessage, maxTokens = 800) => {
       'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: process.env.GROQ_MODEL || 'qwen/qwen3.6-27b',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userMessage  },
