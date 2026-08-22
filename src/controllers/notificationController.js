@@ -1,6 +1,7 @@
 const db    = require('../models/db');
 const axios = require('axios');
 const { sendPushToUser } = require('../routes/push');
+const { emitToUser, emitToAll, emitToTeachers, emitToAdmins } = require('../socket');
 require('dotenv').config();
 
 const ZALO_TOKEN = process.env.ZALO_OA_TOKEN;
@@ -58,13 +59,13 @@ exports.getForUser = async (req, res) => {
   }
 };
 
-// Gửi thông báo: lưu DB + (tùy chọn) push + (tùy chọn) banner + Zalo
+// Gửi thông báo: lưu DB + (tùy chọn) push + (tùy chọn) banner + Zalo + real-time Socket
 exports.send = async (req, res) => {
   try {
     const {
       title, message, recipient, specific_ids,
-      send_push = true,              // có đẩy push không
-      show_banner = false,           // có ghim banner trong app không
+      send_push = true,
+      show_banner = false,
       banner_type = 'info',
       banner_start = null,
       banner_end = null,
@@ -72,7 +73,7 @@ exports.send = async (req, res) => {
 
     if (!title || !message) return res.status(400).json({ message: 'Thiếu tiêu đề hoặc nội dung!' });
 
-    // 1. Lưu vào DB (kèm thông tin banner nếu có)
+    // 1. Lưu vào DB
     await db.query(
       `INSERT INTO notifications
        (title, message, type, recipient, sent_by, show_banner, banner_type, banner_start, banner_end, banner_active)
@@ -98,7 +99,7 @@ exports.send = async (req, res) => {
       [users] = await db.query('SELECT * FROM users WHERE id IN (?)', [specific_ids]);
     }
 
-    // 3. Web push (chỉ khi được chọn)
+    // 3. Web push
     let pushSent = 0;
     if (send_push) {
       const payload = { title, body: message, url: '/' };
@@ -106,7 +107,7 @@ exports.send = async (req, res) => {
       pushSent = results.filter(r => r.status === 'fulfilled' && r.value).length;
     }
 
-    // 4. Zalo (nếu có token)
+    // 4. Zalo
     let zaloSent = 0;
     if (ZALO_TOKEN && ZALO_TOKEN !== 'your_oa_access_token_here') {
       for (const user of users) {
@@ -116,6 +117,29 @@ exports.send = async (req, res) => {
         }
       }
     }
+
+    // 5. ── Real-time Socket.IO ──
+    const socketPayload = {
+      title,
+      message,
+      type: 'notification',
+      sentBy: req.user?.name || 'Admin',
+      sentAt: new Date().toISOString(),
+    };
+
+    try {
+      if (recipient === 'all') {
+        emitToAll('notification:new', socketPayload);
+      } else if (recipient === 'teachers') {
+        emitToTeachers('notification:new', socketPayload);
+      } else if (recipient === 'specific' && specific_ids?.length) {
+        for (const uid of specific_ids) {
+          emitToUser(uid, 'notification:new', socketPayload);
+        }
+      } else {
+        emitToAll('notification:new', socketPayload);
+      }
+    } catch (_) { /* socket not ready */ }
 
     res.json({
       success: true,
@@ -130,7 +154,7 @@ exports.send = async (req, res) => {
   }
 };
 
-// Lấy banner đang hiển thị (cho mọi user)
+// Lấy banner đang hiển thị
 exports.getBanners = async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -147,7 +171,7 @@ exports.getBanners = async (req, res) => {
   }
 };
 
-// Ẩn 1 banner (admin)
+// Ẩn banner
 exports.hideBanner = async (req, res) => {
   try {
     await db.query('UPDATE notifications SET banner_active = 0 WHERE id = ?', [req.params.id]);
@@ -157,7 +181,7 @@ exports.hideBanner = async (req, res) => {
   }
 };
 
-// Lịch sử thông báo (admin)
+// Lịch sử thông báo
 exports.getHistory = async (req, res) => {
   try {
     const [rows] = await db.query(`

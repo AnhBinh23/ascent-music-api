@@ -1,4 +1,5 @@
 const db = require('../models/db');
+const { emitToAdmins, emitToUser } = require('../socket');
 
 exports.getByClass = async (req, res) => {
   try {
@@ -95,6 +96,15 @@ exports.save = async (req, res) => {
               `Ngày ${date} — ${amount > 0 ? amount.toLocaleString() + 'đ' : 'Chưa thiết lập mức lương'}. Chờ admin xác nhận.`,
               'general', `teacher:${teacher.user_id}`, 'system']
           );
+
+          // ── Real-time: notify teacher about salary ──
+          try {
+            emitToUser(teacher.user_id, 'notification:new', {
+              title: `Lương nhóm: ${note}`,
+              message: `Ngày ${date} — ${amount > 0 ? amount.toLocaleString() + 'đ' : 'Chưa thiết lập mức lương'}.`,
+              type: 'salary',
+            });
+          } catch (_) { /* socket not ready yet */ }
         }
       }
 
@@ -108,6 +118,42 @@ exports.save = async (req, res) => {
         );
       }
     }
+
+    // ── Real-time: emit attendance:saved to admin/staff ──
+    const allStudentIds = [...new Set(attendanceList.map(a => a.student_id))];
+    const date = attendanceList[0]?.date;
+    const presentCount = attendanceList.filter(a => a.status === 'present' || a.status === 'late').length;
+    const totalCount = attendanceList.length;
+
+    // Get teacher name for the event
+    let teacherName = '';
+    let className = '';
+    try {
+      if (req.user?.id) {
+        const [tRows] = await db.query(
+          'SELECT t.name FROM teachers t WHERE t.user_id = ?', [req.user.id]
+        );
+        teacherName = tRows[0]?.name || '';
+      }
+      if (classIds[0]) {
+        const [[cRow]] = await db.query('SELECT name FROM classes WHERE id = ?', [classIds[0]]);
+        className = cRow?.name || '';
+      }
+    } catch (_) { /* ignore */ }
+
+    try {
+      emitToAdmins('attendance:saved', {
+        classIds,
+        studentIds: allStudentIds,
+        date,
+        presentCount,
+        totalCount,
+        teacherName,
+        className,
+        savedBy: req.user?.id,
+        savedAt: new Date().toISOString(),
+      });
+    } catch (_) { /* socket not ready yet */ }
 
     res.json({ success: true, message: 'Lưu điểm danh thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }

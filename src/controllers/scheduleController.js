@@ -1,4 +1,5 @@
 const db = require('../models/db');
+const { emitToTeachers, emitToUser, emitToAdmins } = require('../socket');
 
 exports.getAll = async (req, res) => {
   try {
@@ -63,6 +64,25 @@ exports.create = async (req, res) => {
       'INSERT INTO schedules (class_id,teacher_id,room_id,day_of_week,time_start,time_end,type,note) VALUES (?,?,?,?,?,?,?,?)',
       [class_id, teacher_id, room_id, day_of_week, time_start, time_end, type, note]
     );
+
+    // ── Real-time: notify the affected teacher ──
+    try {
+      if (teacher_id) {
+        const [[t]] = await db.query('SELECT user_id, name FROM teachers WHERE id = ?', [teacher_id]);
+        const [[c]] = await db.query('SELECT name FROM classes WHERE id = ?', [class_id]);
+        if (t?.user_id) {
+          emitToUser(t.user_id, 'schedule:updated', {
+            action: 'created',
+            className: c?.name || '',
+            day_of_week,
+            time_start,
+            time_end,
+            updatedBy: req.user?.name || 'Admin',
+          });
+        }
+      }
+    } catch (_) { /* socket not ready */ }
+
     res.json({ success: true, message: 'Thêm lịch học thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
@@ -70,18 +90,80 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const { class_id, teacher_id, room_id, day_of_week, time_start, time_end, type, note } = req.body;
+
+    // Get old schedule to find affected teacher
+    const [[oldSched]] = await db.query('SELECT teacher_id, class_id FROM schedules WHERE id = ?', [req.params.id]);
+
     await db.query(
       `UPDATE schedules SET class_id=?, teacher_id=?, room_id=?, day_of_week=?,
        time_start=?, time_end=?, type=?, note=? WHERE id=?`,
       [class_id, teacher_id, room_id, day_of_week, time_start, time_end, type, note, req.params.id]
     );
+
+    // ── Real-time: notify affected teacher(s) ──
+    try {
+      const affectedTeacherIds = new Set();
+      if (teacher_id) affectedTeacherIds.add(teacher_id);
+      if (oldSched?.teacher_id) affectedTeacherIds.add(oldSched.teacher_id);
+
+      const [[c]] = await db.query('SELECT name FROM classes WHERE id = ?', [class_id || oldSched?.class_id]);
+
+      for (const tid of affectedTeacherIds) {
+        const [[t]] = await db.query('SELECT user_id FROM teachers WHERE id = ?', [tid]);
+        if (t?.user_id) {
+          emitToUser(t.user_id, 'schedule:updated', {
+            action: 'updated',
+            className: c?.name || '',
+            day_of_week,
+            time_start,
+            time_end,
+            updatedBy: req.user?.name || 'Admin',
+          });
+        }
+      }
+
+      // Also notify other admins
+      emitToAdmins('schedule:updated', {
+        action: 'updated',
+        className: c?.name || '',
+        day_of_week,
+        time_start,
+        time_end,
+        updatedBy: req.user?.name || 'Admin',
+      });
+    } catch (_) { /* socket not ready */ }
+
     res.json({ success: true, message: 'Cập nhật lịch học thành công!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 
 exports.delete = async (req, res) => {
   try {
+    // Get schedule info before deleting
+    const [[sched]] = await db.query(
+      `SELECT s.teacher_id, s.class_id, s.day_of_week, s.time_start, c.name AS class_name
+       FROM schedules s LEFT JOIN classes c ON s.class_id = c.id WHERE s.id = ?`,
+      [req.params.id]
+    );
+
     await db.query('UPDATE schedules SET status = "cancelled" WHERE id = ?', [req.params.id]);
+
+    // ── Real-time: notify teacher ──
+    try {
+      if (sched?.teacher_id) {
+        const [[t]] = await db.query('SELECT user_id FROM teachers WHERE id = ?', [sched.teacher_id]);
+        if (t?.user_id) {
+          emitToUser(t.user_id, 'schedule:updated', {
+            action: 'deleted',
+            className: sched.class_name || '',
+            day_of_week: sched.day_of_week,
+            time_start: sched.time_start,
+            updatedBy: req.user?.name || 'Admin',
+          });
+        }
+      }
+    } catch (_) { /* socket not ready */ }
+
     res.json({ success: true, message: 'Đã xóa lịch học!' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };

@@ -1,4 +1,5 @@
 const db = require('../models/db');
+const { emitToAdmins } = require('../socket');
 
 exports.getAll = async (req, res) => {
   try {
@@ -39,9 +40,10 @@ exports.create = async (req, res) => {
   try {
     const { class_id, date, time, note } = req.body;
     const userId = req.user.id;
-    const [teacherRows] = await db.query('SELECT id FROM teachers WHERE user_id = ?', [userId]);
+    const [teacherRows] = await db.query('SELECT id, name FROM teachers WHERE user_id = ?', [userId]);
     if (!teacherRows.length) return res.status(404).json({ message: 'Không tìm thấy giáo viên' });
     const teacher_id = teacherRows[0].id;
+    const teacherName = teacherRows[0].name;
 
     // Kiểm tra đã chấm công lớp này hôm nay chưa
     const [existing] = await db.query(
@@ -54,22 +56,36 @@ exports.create = async (req, res) => {
 
     // Lấy lương/buổi từ lớp học
     const [classInfo] = await db.query(
-      'SELECT type, teacher_salary FROM classes WHERE id = ?', [class_id]
+      'SELECT type, teacher_salary, name FROM classes WHERE id = ?', [class_id]
     );
     const cls = classInfo[0];
-    // Lớp 1-1: gán lương ngay; Lớp nhóm: gán 0 (chờ admin xác nhận sau khi biết ai vắng)
     let salary_earned = 0;
     if (cls) {
       if (cls.type === '1v1') {
         salary_earned = Number(cls.teacher_salary) || 0;
       }
-      // Lớp nhóm: salary_earned = 0, admin sẽ nhập sau
     }
 
     await db.query(
       'INSERT INTO checkin (teacher_id, class_id, date, time, salary_earned, note) VALUES (?,?,?,?,?,?)',
       [teacher_id, class_id, date, time, salary_earned, note]
     );
+
+    // ── Real-time: emit checkin:created to admin/staff ──
+    try {
+      emitToAdmins('checkin:created', {
+        teacher_id,
+        teacherName,
+        class_id,
+        className: cls?.name || '',
+        classType: cls?.type || '',
+        date,
+        time,
+        salary_earned,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (_) { /* socket not ready */ }
+
     res.json({
       success: true,
       message: cls?.type === 'group'
