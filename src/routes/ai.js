@@ -26,7 +26,10 @@ const callAI = async (systemPrompt, userMessage, maxTokens = 800) => {
   if (response.status === 429) throw new Error('RATE_LIMIT');
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
-  return data.choices?.[0]?.message?.content || 'Không thể xử lý yêu cầu.';
+  let text = data.choices?.[0]?.message?.content || 'Không thể xử lý yêu cầu.';
+  // Loại bỏ <think>...</think> từ model reasoning
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  return text;
 };
 
 const handleErr = (res, err, label) => {
